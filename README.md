@@ -1,153 +1,84 @@
-# GNOME Shell Extension - Quake Terminal
+# Quake Terminal Sidebar
 
-![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)
+基于 [diegodario88/quake-terminal](https://github.com/diegodario88/quake-terminal) 的持续维护 fork，使用系统中已有的终端。
 
-<p align="center">
-  <img src="assets/terminal.png" width="200" alt="A black terminal emulator icon with traditional bash symbol" />
-</p>
+鼠标在显示器右边缘停留约 180 毫秒，终端从右侧滑入；点击其他应用后，窗口向右滑出。也可以按 **Super + Enter** 显示或收回。每次进入边缘只展开一次，鼠标停留不会反复切换。首次使用可以直接碰边，无需先用快捷键启动。
 
-<p align="center"><em>Quake Terminal: A drop-down interface for GNOME Shell that launches your preferred terminal emulator in Quake mode, inspired by classic Quake games.</em></p>
+## Sidebar behavior
 
-## Demo
+- Right edge by default, 40% of the monitor width and the full work-area height.
+- Pointer hover and keyboard shortcuts share the same terminal window and session.
+- Position, reveal, hide and close animations use the same edge.
+- Animations are clipped to the current monitor, including stacked and offset displays.
+- Moving between displays chooses the monitor containing the hovered edge.
+- An interrupted hide can reverse into a show without a later minimize callback.
+- Top-edge mode remains available in Preferences.
+- Hover is suspended during dragging, fullscreen applications, the overview and the lock screen.
+- The fork has its own UUID and settings schema so upstream extension updates cannot overwrite it.
 
-https://github.com/diegodario88/quake-terminal/assets/25825145/eb49d9a2-e918-4f22-8ddb-25486c2cd91b
+This is a window controller, not a terminal emulator. It uses the terminal selected in Preferences (Ptyxis on Ubuntu 26.04 by default). It does not change the system's default terminal. It still manages one selected application, rather than a collection of different sidebar apps.
 
-> [!TIP]
-> The terminal used in this demo is **Alacritty** with window decorations disabled for a seamless look.
+## Install from this repository
 
-## Settings
+Requires Python 3 with PyGObject, `gnome-extensions`, and `glib-compile-schemas`, normally already present on Ubuntu GNOME. No administrator access or `make` is needed.
 
-![Settings](assets/screenshot-settings.png)
-
-## Overview
-
-The GNOME Shell Extension - Quake Terminal enhances your desktop by providing a drop-down interface, inspired by classic Quake games, that can instantly launch your preferred terminal emulator over any workspace.
-
-Key features include:
-
-- **Quick Activation:** Instantly summon your preferred terminal emulator in Quake mode using a single keyboard shortcut or a customizable key combination for fast, efficient access.
-- **Workspace Integration:** The terminal remains hidden in overview mode and during Alt+Tab switching, ensuring it never obstructs your workflow when not in use.
-- **Multi-Display Support:** Choose which display the Quake Terminal appears on, offering flexibility for multi-monitor setups.
-- **Custom Arguments:** Launch your terminal emulator with custom arguments when opened by Quake Terminal, allowing tailored configurations.
-- **Aesthetic Animations:** Smooth sizing and animation timing for a polished user experience.
-
-> **Note:** This extension does not provide a terminal emulator. It works with the terminal application already installed on your system.
-
----
-
-## Installation
-
-### Via GNOME Extensions Website
-
-You can easily install the extension from the GNOME Extensions website:
-
-[![Get it on GNOME Extensions](assets/get_it_on_gnome_extensions.png)](https://extensions.gnome.org/extension/6307/quake-terminal)
-
-### Manual Installation
-
-If you prefer manual installation, follow these steps:
-
-1. Clone this repository to your system:
-
-```bash
-git clone https://github.com/diegodario88/quake-terminal.git
+```sh
+git clone https://github.com/ssfxx0923/quake-terminal.git
+cd quake-terminal
+python3 scripts/build.py --install
 ```
 
-2. Run the provided installation script:
+Log out and back in to load the build. The installer does not log you out. It preserves the upstream terminal selection, shortcut and launch arguments, enables this fork, and disables the original extension to avoid shortcut conflicts. It leaves the original extension installed for rollback. On subsequent installs, it backs up the previous fork build under `~/.local/state/quake-terminal-sidebar/backups/` and preserves the fork's settings.
 
-```bash
-make install
+Build without installing:
+
+```sh
+python3 scripts/build.py
 ```
 
-## Contributing
+The package is written to `dist/quake-terminal-sidebar@ssfxx0923.github.io.shell-extension.zip`. `make pack` and `make install` are also supported when make is installed.
 
-### Setup
+## Preferences
 
-1. Fork this repo on Github
-2. Clone your new repo
-3. Browse to the root of the project and run the provided installation script:
-
-```bash
-npm install
+```sh
+gnome-extensions prefs quake-terminal-sidebar@ssfxx0923.github.io
 ```
 
-```bash
-make install
+Choose **Slide Edge**, **Reveal on Edge Hover**, **Hover Delay**, **Edge Width**, terminal application, window size, shortcut and focus behavior. The defaults use a two-logical-pixel trigger strip and 180 ms dwell/animation times. Automatic hiding is triggered by focus loss, not by moving the pointer outside the terminal while typing.
+
+## Development and verification
+
+```sh
+npm ci --ignore-scripts
+npm test
+npm run lint
+python3 scripts/build.py
 ```
 
-4. Make your changes to the code
-5. Start a nested GNOME Shell session to test your changes
+The Node tests cover edge dwell cancellation, repeated pointer visits, monitor selection and animation clipping. A separate integration test starts a real GNOME compositor on a private D-Bus session with a virtual display; it does not control or restart the user's desktop:
 
-```bash
-dbus-run-session -- gnome-shell --nested --wayland
+```sh
+python3 tests/run-gnome-smoke.py
 ```
 
-### Release Process
+The integration test requires GNOME Shell's headless backend, its performance helper and Ptyxis. It checks pointer-triggered startup, actual window positioning, animation direction, rapid reversal, focus loss and cleanup. The local fork was developed on Ubuntu 26.04 / GNOME 50; the upstream compatibility declarations remain in `src/metadata.json`.
 
-This project uses [semantic-release](https://semantic-release.gitbook.io/) for automated versioning and releases. The release process is triggered automatically when commits are pushed to the `main` branch.
+GNOME caches extension JavaScript for the duration of a desktop session. After installing an updated build, log out and back in to load the new code. Disabling and enabling alone is not a source reload on GNOME 50.
 
-#### Commit Message Format
+## Roll back to the original extension
 
-Use [conventional commits](https://www.conventionalcommits.org/) format for your commit messages:
-
-- `feat:` - A new feature (triggers a minor release)
-- `fix:` - A bug fix (triggers a patch release)
-- `docs:` - Documentation changes
-- `style:` - Code style changes (formatting, etc.)
-- `refactor:` - Code refactoring
-- `test:` - Adding or updating tests
-- `chore:` - Build process or auxiliary tool changes
-
-Example:
-
-```
-feat: add support for custom terminal arguments
-fix: resolve animation timing issue
-docs: update installation instructions
+```sh
+gnome-extensions disable quake-terminal-sidebar@ssfxx0923.github.io
+gnome-extensions enable quake-terminal@diegodario88.github.io
 ```
 
-#### What Happens on Release
+The original extension and its settings are left intact by the installer.
 
-When you push to `main` with proper conventional commit messages:
+## Upstream and license
 
-1. **Version Calculation**: semantic-release analyzes commit messages and determines the next version
-2. **Version Updates**: Updates both `package.json` and `src/metadata.json` with the new version
-3. **Changelog**: Generates/updates `CHANGELOG.md` with release notes
-4. **Git Tag**: Creates a git tag for the release
-5. **GitHub Release**: Creates a GitHub release with generated notes
+Original project and copyright: Diego Dario and contributors, [Quake Terminal](https://github.com/diegodario88/quake-terminal). The upstream source and history are preserved. See [LICENSE](LICENSE) and the source-file license headers.
 
-Both `package.json` version and `metadata.json` `version-name` will be updated to match, while `metadata.json` `version` (GNOME extension version) will be incremented automatically.
-
-### Debugging
-
-- Watch extensions logs
-
-```bash
-journalctl -f -o cat /usr/bin/gnome-shell
+```sh
+git remote add upstream https://github.com/diegodario88/quake-terminal.git
+git fetch upstream
 ```
-
-- Watch preferences window logs
-
-```bash
-journalctl -f -o cat /usr/bin/gjs
-```
-
-- Watch GSettings updates:
-
-```bash
-dconf watch /org/gnome/shell/extensions/quake-terminal/
-```
-
-## GJS docs
-
-GNOME Shell Extensions documentation and tutorial: https://gjs.guide/extensions/
-
-## Like this Extension?
-
-If you want to help me with this, consider buying me a coffee. :)
-
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Y8Y8Q12UV)
-
----
-
-Made with ❤️ by [Diego Dario](https://github.com/diegodario88)

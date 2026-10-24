@@ -1,22 +1,22 @@
 {
-  "name": "quake-terminal",
-  "description": "Quickly launch a terminal in Quake mode using a keyboard shortcut",
+  "name": "quake-terminal-sidebar",
+  "description": "Edge-triggered GNOME terminal sidebar",
   "version": "1.4.0",
   "private": true,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/diegodario88/quake-terminal"
+    "url": "git+https://github.com/ssfxx0923/quake-terminal"
   },
   "author": "Diego Dario",
   "license": "LGPL-3.0-or-later",
   "type": "module",
   "bugs": {
-    "url": "https://github.com/diegodario88/quake-terminal/issues"
+    "url": "https://github.com/ssfxx0923/quake-terminal/issues"
   },
   "engines": {
     "node": ">=22"
   },
-  "homepage": "https://github.com/diegodario88/quake-terminal#readme",
+  "homepage": "https://github.com/ssfxx0923/quake-terminal#readme",
   "sideEffects": false,
   "devDependencies": {
     "@girs/gnome-shell": "^48.0.2",
@@ -28,5 +28,9 @@
     "eslint-plugin-jsdoc": "^50.6.17",
     "prettier": "^3.5.3",
     "semantic-release": "^24.2.0"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "lint": "eslint src/ tests/"
   }
 }

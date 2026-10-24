@@ -635,6 +635,38 @@ export default class QuakeTerminalPreferences extends ExtensionPreferences {
 
     page.add(positionSettingsGroup);
 
+    const slideEdgeRow = new Adw.ComboRow({
+      title: _("Slide Edge"),
+      subtitle: _("Window position and animation use the same edge"),
+      model: Gtk.StringList.new([_("Right"), _("Top")]),
+      selected: settings.get_string("slide-edge") === "right" ? 0 : 1,
+    });
+    slideEdgeRow.connect("notify::selected", () => {
+      settings.set_string("slide-edge", slideEdgeRow.selected === 0 ? "right" : "top");
+    });
+    positionSettingsGroup.add(slideEdgeRow);
+
+    const hoverRow = new Adw.SwitchRow({
+      title: _("Reveal on Edge Hover"),
+      subtitle: _("Rest the pointer at the screen edge to show the sidebar"),
+    });
+    settings.bind("hover-enabled", hoverRow, "active", Gio.SettingsBindFlags.DEFAULT);
+    positionSettingsGroup.add(hoverRow);
+
+    const hoverDelayRow = new Adw.SpinRow({
+      title: _("Hover Delay (ms)"),
+      adjustment: new Gtk.Adjustment({ lower: 50, upper: 2000, step_increment: 50 }),
+    });
+    settings.bind("hover-delay", hoverDelayRow, "value", Gio.SettingsBindFlags.DEFAULT);
+    positionSettingsGroup.add(hoverDelayRow);
+
+    const hoverWidthRow = new Adw.SpinRow({
+      title: _("Edge Width (pixels)"),
+      adjustment: new Gtk.Adjustment({ lower: 1, upper: 16, step_increment: 1 }),
+    });
+    settings.bind("hover-width", hoverWidthRow, "value", Gio.SettingsBindFlags.DEFAULT);
+    positionSettingsGroup.add(hoverWidthRow);
+
     // Vertical Size as percentage
     const verticalSpinRow = new Adw.SpinRow({
       title: _("Vertical Size"),

@@ -5,6 +5,7 @@ import Shell from "gi://Shell";
 import Meta from "gi://Meta";
 import { PACKAGE_VERSION } from "resource:///org/gnome/shell/misc/config.js";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
+import { animationClip, slideOffset } from "./sidebar.js";
 
 const SHELL_VERSION = Number.parseInt(PACKAGE_VERSION.split(".")[0]);
 
@@ -114,6 +115,9 @@ export const QuakeMode = class {
     this._terminalChangedId = null;
     this._actorStageViewChangedId = null;
     this._clearAnimationClip = null;
+    this._requestedMonitorIndex = null;
+    this._desiredVisible = false;
+    this._animationState = null;
 
     /**
      *@type {Meta.Window}
@@ -135,7 +139,7 @@ export const QuakeMode = class {
      */
     this._settingsWatchingListIds = [];
 
-    ["vertical-size", "horizontal-size", "horizontal-alignment"].forEach(
+    ["vertical-size", "horizontal-size", "horizontal-alignment", "slide-edge"].forEach(
       (prefAdjustment) => {
         const settingsId = settings.connect(
           `changed::${prefAdjustment}`,
@@ -189,7 +193,7 @@ export const QuakeMode = class {
          * @type {Meta.WindowActor & { ease: Function }}
          */
         const actor = w.get_compositor_private();
-        return actor.get_name() === "quake-terminal" && w.is_alive;
+        return actor?.get_name() === "quake-terminal-sidebar";
       });
 
       if (!ourWindow) {
@@ -249,6 +253,9 @@ export const QuakeMode = class {
   }
 
   get monitorDisplayScreenIndex() {
+    if (this._requestedMonitorIndex !== null &&
+        this._requestedMonitorIndex < Main.layoutManager.monitors.length)
+      return this._requestedMonitorIndex;
     if (this._settings.get_boolean("render-on-leftmost-monitor")) {
       return this._getMonitorIndexByPosition("leftmost");
     }
@@ -310,6 +317,15 @@ export const QuakeMode = class {
   destroy() {
     _log(`*** QuakeTerminal@destroy - Starting destroy action ***`);
     this._clearAnimationClip?.();
+    const actor = this.actor;
+    if (actor) {
+      actor.remove_all_transitions();
+      actor.translation_x = 0;
+      actor.translation_y = 0;
+      actor.opacity = 255;
+      // A disabled extension must leave its window reachable normally.
+      delete this.terminalWindow.skip_taskbar;
+    }
     if (this._sourceTimeoutLoopId) {
       GLib.Source.remove(this._sourceTimeoutLoopId);
       this._sourceTimeoutLoopId = null;
@@ -368,6 +384,33 @@ export const QuakeMode = class {
    * @returns {Promise<void>} A promise that resolves when the toggle operation is complete.
    */
   async toggle() {
+    if (this.terminalWindow && this._desiredVisible &&
+        (this.terminalWindow.has_focus() ||
+         this._settings.get_boolean("hide-on-toggle-without-focus"))) {
+      this._hideTerminalWithAnimation();
+      return;
+    }
+    await this.show();
+  }
+
+  /** Forget a monitor that may have disappeared after a display change. */
+  resetMonitor() {
+    this._requestedMonitorIndex = null;
+    this._fitTerminalToMainMonitor();
+  }
+
+  /**
+   * Show the sidebar without toggling, including while a hide is in progress.
+   *
+   * @param {number|null} monitorIndex - Monitor selected by the hovered edge.
+   * @returns {Promise<void>} Completion of terminal startup.
+   */
+  async show(monitorIndex = null) {
+    const previousMonitor = this.monitorDisplayScreenIndex;
+    this._requestedMonitorIndex = monitorIndex;
+    const alreadyVisible = this._desiredVisible && this.terminalWindow &&
+      !this.terminalWindow.is_hidden() && this._animationState !== "hiding";
+    this._desiredVisible = true;
     if (!this.terminalWindow) {
       try {
         await this._launchTerminalWindow();
@@ -379,6 +422,8 @@ export const QuakeMode = class {
         if (this._adjustTerminalWindowPosition()) {
           return;
         }
+        // The map handler will resize and show the newly created window.
+        return;
       } catch (error) {
         _log(`*** QuakeTerminal@toggle - Catch error ${error} ***`);
         this.destroy();
@@ -390,21 +435,11 @@ export const QuakeMode = class {
       this._configureSkipTaskbarProperty();
     }
 
-    if (this.terminalWindow.has_focus()) {
-      return this._hideTerminalWithAnimationBottomUp();
+    if (alreadyVisible && previousMonitor === this.monitorDisplayScreenIndex) {
+      Main.activateWindow(this.terminalWindow);
+      return;
     }
-
-    if (this.terminalWindow.is_hidden()) {
-      this._fitTerminalToMainMonitor();
-      return this._showTerminalWithAnimationTopDown();
-    }
-
-    if (this._settings.get_boolean("hide-on-toggle-without-focus")) {
-      return this._hideTerminalWithAnimationBottomUp();
-    }
-
-    this._fitTerminalToMainMonitor();
-    Main.activateWindow(this.terminalWindow);
+    this._showTerminalAfterResize();
   }
 
   /**
@@ -432,9 +467,6 @@ export const QuakeMode = class {
     const promiseTerminalWindowInLessThanFiveSeconds = new Promise(
       (resolve, reject) => {
         const shellAppWindowsChangedHandler = () => {
-          GLib.Source.remove(this._sourceTimeoutLoopId);
-          this._sourceTimeoutLoopId = null;
-
           if (!this._terminal) {
             return reject(
               Error(
@@ -448,7 +480,6 @@ export const QuakeMode = class {
               `*** QuakeTerminal@_launchTerminalWindow - Not in STARTING state, ignoring windows-changed signal ***`
             );
 
-            this._terminal.disconnect(this._terminalChangedId);
             return;
           }
 
@@ -461,13 +492,19 @@ export const QuakeMode = class {
           }
 
           const ourWindow = this._terminal.get_windows()[0];
+          if (this._sourceTimeoutLoopId) {
+            GLib.Source.remove(this._sourceTimeoutLoopId);
+            this._sourceTimeoutLoopId = null;
+          }
+          this._terminal.disconnect(this._terminalChangedId);
+          this._terminalChangedId = null;
           /**
            * The window actor for this terminal window.
            *
            * @type {Meta.WindowActor & { ease: Function }}
            */
           const actor = ourWindow.get_compositor_private();
-          actor.set_name("quake-terminal");
+          actor.set_name("quake-terminal-sidebar");
           this._terminalWindow = ourWindow;
           this._internalState = QuakeMode.LIFECYCLE.CREATED_ACTOR;
 
@@ -641,37 +678,24 @@ export const QuakeMode = class {
   }
 
   /**
-   * Clips animation above the terminal's intended top edge.
+   * Clip every animation frame to this monitor's work area.
    *
-   * @param {Meta.WindowActor} actor - The animated terminal actor.
-   * @returns {Function} Cleanup for completion or cancellation.
+   * @param {Meta.WindowActor} actor - Animated window actor.
+   * @returns {Function} Cleanup on completion, cancellation or actor destruction.
    */
-  _clipAnimationAboveTerminal(actor) {
+  _clipAnimation(actor) {
     this._clearAnimationClip?.();
     const originalClip = actor.has_clip ? actor.get_clip() : null;
-    const top = actor.meta_window.get_frame_rect().y;
-
-    // Actor-local coordinates move with the window; counteract the translation
-    // so the animation stays below the terminal's intended top edge.
-    const updateClip = () => {
-      const [x, y, width, height] = originalClip || [
-        0,
-        0,
-        actor.width,
-        actor.height,
-      ];
-      const clipTop = Math.max(y, top - actor.y - actor.translation_y);
-      actor.set_clip(x, clipTop, width, Math.max(0, y + height - clipTop));
-    };
-    const translationId = actor.connect("notify::translation-y", updateClip);
-    const allocationId = actor.connect("notify::allocation", updateClip);
+    const area = this.terminalWindow.get_work_area_for_monitor(this.monitorDisplayScreenIndex);
+    const updateClip = () => actor.set_clip(...animationClip(actor, area, originalClip));
+    const ids = ["notify::translation-x", "notify::translation-y", "notify::allocation"]
+      .map(signal => actor.connect(signal, updateClip));
     let cleared = false;
     const clearClip = (destroyed = false) => {
       if (cleared) return;
       cleared = true;
       if (!destroyed) {
-        actor.disconnect(translationId);
-        actor.disconnect(allocationId);
+        ids.forEach(id => actor.disconnect(id));
         actor.disconnect(destroyId);
         if (originalClip) actor.set_clip(...originalClip);
         else actor.remove_clip();
@@ -685,81 +709,94 @@ export const QuakeMode = class {
     return clearClip;
   }
 
-  _showTerminalWithAnimationTopDown() {
-    if (this._shouldAvoidAnimation()) {
-      return;
-    }
+  /**
+   * @returns {object} Translation that hides the sidebar beyond its own edge.
+   */
+  _hiddenOffset() {
+    return slideOffset(this._settings.get_string("slide-edge"),
+      this.terminalWindow.get_frame_rect(),
+      this.terminalWindow.get_work_area_for_monitor(this.monitorDisplayScreenIndex));
+  }
 
-    const parent = this.actor.get_parent();
-
-    if (!parent) {
-      return;
-    }
-
-    parent.set_child_above_sibling(this.actor, null);
-    this.actor.translation_y = this.actor.height * -1;
-    const clearClip = this._clipAnimationAboveTerminal(this.actor);
-
-    Main.wm.skipNextEffect(this.actor);
-    Main.activateWindow(this.actor.meta_window);
-
-    this.actor.ease({
-      mode: Clutter.AnimationMode.EASE_IN_QUAD,
+  /** Slide in from the configured edge, reversing an interrupted hide smoothly. */
+  _showTerminalWithAnimation() {
+    const actor = this.actor;
+    if (!actor || !this._desiredVisible) return;
+    const parent = actor.get_parent();
+    if (!parent) return;
+    const wasHidden = this.terminalWindow.is_hidden() || actor.opacity === 0;
+    actor.remove_all_transitions();
+    this._animationState = "showing";
+    if (wasHidden)
+      Object.assign(actor, this._hiddenOffset());
+    const clearClip = this._clipAnimation(actor);
+    parent.set_child_above_sibling(actor, null);
+    Main.wm.skipNextEffect(actor);
+    Main.activateWindow(this.terminalWindow);
+    actor.ease({
+      mode: Clutter.AnimationMode.EASE_OUT_CUBIC,
+      translation_x: 0,
       translation_y: 0,
       opacity: 255,
       duration: this._settings.get_int("animation-time"),
       onStopped: () => clearClip(),
-      onComplete: () => {
-        this._isTransitioning = false;
-      },
+      onComplete: () => { this._animationState = null; },
     });
   }
 
-  _hideTerminalWithAnimationBottomUp() {
-    if (this._shouldAvoidAnimation()) {
-      return;
-    }
-
-    const clearClip = this._clipAnimationAboveTerminal(this.actor);
-    this.actor.ease({
-      mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-      translation_y: this.actor.height * -1,
+  /** Slide out toward the same edge and minimize only after the animation. */
+  _hideTerminalWithAnimation() {
+    const actor = this.actor;
+    if (!actor || !this._desiredVisible) return;
+    this._desiredVisible = false;
+    this._cancelWaitForResize();
+    actor.remove_all_transitions();
+    this._animationState = "hiding";
+    const clearClip = this._clipAnimation(actor);
+    actor.ease({
+      ...this._hiddenOffset(),
+      mode: Clutter.AnimationMode.EASE_IN_CUBIC,
       duration: this._settings.get_int("animation-time"),
       onStopped: () => clearClip(),
       onComplete: () => {
-        Main.wm.skipNextEffect(this.actor);
-        this.actor.meta_window.minimize();
-        this.actor.translation_y = 0;
+        if (this._desiredVisible) return;
+        Main.wm.skipNextEffect(actor);
+        this.terminalWindow.minimize();
+        actor.translation_x = 0;
+        actor.translation_y = 0;
+        this._animationState = null;
       },
     });
   }
 
-  /**
-   * Resizes the terminal, then shows it. On Wayland a resize only lands once
-   * the terminal redraws, so showing it right away would slide in the old
-   * size, e.g. the full width GNOME auto-maximized it to on launch.
-   */
+  /** Wait for Wayland's resize acknowledgement before starting the animation. */
   _showTerminalAfterResize() {
-    if (!this._fitTerminalToMainMonitor()) {
-      this._showTerminalWithAnimationTopDown();
-      return;
-    }
-
+    this._cancelWaitForResize();
+    this._animationState = "resizing";
     const show = () => {
       this._cancelWaitForResize();
-      this._showTerminalWithAnimationTopDown();
-    };
-
-    this._resizeSignalId = this.terminalWindow.connect("size-changed", show);
-    this._resizeTimeoutId = GLib.timeout_add(
-      GLib.PRIORITY_DEFAULT,
-      RESIZE_TIMEOUT_IN_MS,
-      () => {
-        this._resizeTimeoutId = null;
-        show();
-        return GLib.SOURCE_REMOVE;
+      // Terminal cell sizes and minimum sizes may round the requested width.
+      // Anchor the actual acknowledged frame rather than the requested size.
+      if (this._settings.get_string("slide-edge") === "right") {
+        const area = this.terminalWindow.get_work_area_for_monitor(this.monitorDisplayScreenIndex);
+        const frame = this.terminalWindow.get_frame_rect();
+        this.terminalWindow.move_frame(false, area.x + area.width - frame.width, area.y);
       }
-    );
+      this._showTerminalWithAnimation();
+    };
+    this._resizeSignalId = this.terminalWindow.connect("size-changed", show);
+    if (!this._fitTerminalToMainMonitor()) {
+      show();
+      return;
+    }
+    if (this._resizeSignalId) {
+      this._resizeTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT,
+        RESIZE_TIMEOUT_IN_MS, () => {
+          this._resizeTimeoutId = null;
+          show();
+          return GLib.SOURCE_REMOVE;
+        });
+    }
   }
 
   /**
@@ -804,8 +841,9 @@ export const QuakeMode = class {
       (horizontalSettingsValue * area.width) / 100
     );
 
-    const terminalX =
-      area.x +
+    const terminalX = this._settings.get_string("slide-edge") === "right"
+      ? area.x + area.width - terminalWidth
+      : area.x +
       Math.round(
         horizontalAlignmentSettingsValue &&
           (area.width - terminalWidth) / horizontalAlignmentSettingsValue
@@ -894,11 +932,11 @@ export const QuakeMode = class {
        */
       actor.ease = function () {
         actor.ease = originalActorAnimate;
-        const clearClip = self._clipAnimationAboveTerminal(actor);
+        const clearClip = self._clipAnimation(actor);
 
         originalActorAnimate.call(actor, {
           mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-          translation_y: actor.height * -1,
+          ...self._hiddenOffset(),
           duration: self._settings.get_int("animation-time"),
           onStopped: () => clearClip(),
           onComplete: () => {
@@ -928,15 +966,22 @@ export const QuakeMode = class {
       return;
     }
 
-    if (await is_wlclipboard(source.focus_window)) {
+    const focus = source.focus_window;
+    if (await is_wlclipboard(focus)) {
       return;
     }
 
-    if (source.focus_window === this.terminalWindow) {
+    if (source.focus_window !== focus || !this._desiredVisible) {
       return;
     }
 
-    this._hideTerminalWithAnimationBottomUp();
+    // Keep the sidebar visible while using one of its own dialogs.
+    for (let parent = focus; parent; parent = parent.get_transient_for()) {
+      if (parent === this.terminalWindow)
+        return;
+    }
+
+    this._hideTerminalWithAnimation();
   }
 
   _handleAlwaysOnTop() {

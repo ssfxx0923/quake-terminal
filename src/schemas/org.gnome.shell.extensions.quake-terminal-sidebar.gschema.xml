@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-  <schema id="org.gnome.shell.extensions.quake-terminal" path="/org/gnome/shell/extensions/quake-terminal/">
+  <schema id="org.gnome.shell.extensions.quake-terminal-sidebar" path="/org/gnome/shell/extensions/quake-terminal-sidebar/">
     <key name="terminal-id" type="s">
-			<default>"org.gnome.Terminal.desktop"</default>
+			<default>"org.gnome.Ptyxis.desktop"</default>
 			<summary>Terminal App</summary>
       <description>The application path used as a reference when initializing a new terminal</description>
     </key>
@@ -12,18 +12,18 @@
 			<description>Shortcut to activate the terminal application</description>
 		</key>
 		<key name="vertical-size" type="i">
-  		<default>50</default>
+  		<default>100</default>
   		<summary>Terminal Vertical Size</summary>
   		<description>Specify the vertical size of the terminal in percentage</description>
 		</key>
 		<key name="horizontal-size" type="i">
-  		<default>100</default>
+  		<default>40</default>
   		<summary>Terminal Horizontal Size</summary>
   		<description>Specify the horizontal size of the terminal in percentage</description>
 		</key>
 		<key name="horizontal-alignment" type="i">
 			<range min="0" max="2" />
-			<default>2</default>
+			<default>1</default>
 			<summary>Terminal Horizontal Alignment</summary>
 			<description>Control the value for horizontal alignment</description>
 		</key>
@@ -68,12 +68,12 @@
 			<description>When enabled, if the window is not hidden, and out of focus, instead of coming back into focus, hide</description>
 		</key>
 		<key name="always-on-top" type="b">
-			<default>false</default>
+			<default>true</default>
 			<summary>Always On Top</summary>
   		<description>When enabled, terminal window will appear on top of all other non-topmost windows</description>
 		</key>
 		<key name="animation-time" type="i">
-      <default>250</default>
+      <default>180</default>
       <summary>Animation time</summary>
       <description>Duration of the dropdown animation in milliseconds</description>
 		</key>
@@ -86,6 +86,25 @@
       <default>{}</default>
       <summary>Terminal launch arguments per application</summary>
       <description>Dictionary mapping application IDs to their terminal launch arguments</description>
+    </key>
+    <key name="slide-edge" type="s">
+      <choices><choice value="right"/><choice value="top"/></choices>
+      <default>'right'</default>
+      <summary>Edge used for both positioning and animation</summary>
+    </key>
+    <key name="hover-enabled" type="b">
+      <default>true</default>
+      <summary>Show the sidebar when the pointer rests at the selected edge</summary>
+    </key>
+    <key name="hover-delay" type="i">
+      <range min="50" max="2000"/>
+      <default>180</default>
+      <summary>Edge dwell time in milliseconds</summary>
+    </key>
+    <key name="hover-width" type="i">
+      <range min="1" max="16"/>
+      <default>2</default>
+      <summary>Edge trigger width in logical pixels</summary>
     </key>
 	</schema>
 </schemalist>

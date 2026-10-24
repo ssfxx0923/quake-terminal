@@ -13,6 +13,7 @@ export default [
         Debugger: "readonly",
         GIRepositoryGType: "readonly",
         globalThis: "readonly",
+        global: "readonly",
         imports: "readonly",
         Intl: "readonly",
         log: "readonly",

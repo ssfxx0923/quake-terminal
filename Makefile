@@ -1,7 +1,7 @@
-NAME=quake-terminal
-DOMAIN=diegodario88.github.io
+NAME=quake-terminal-sidebar
+DOMAIN=ssfxx0923.github.io
 EXTENSION_ID=$(NAME)@$(DOMAIN)
-PACKED_EXTENSION_FILE=$(EXTENSION_ID).shell-extension.zip
+PACKED_EXTENSION_FILE=dist/$(EXTENSION_ID).shell-extension.zip
 
 .PHONY: compile pack uninstall install
 
@@ -9,13 +9,8 @@ compile:
 	@glib-compile-schemas src/schemas
 	@echo "Compiled schemas"
 
-pack: compile
-	@echo "Packing $(NAME) extension ..."
-	@if [ -f "$(PACKED_EXTENSION_FILE)" ]; then \
-	rm -v "$(PACKED_EXTENSION_FILE)"; \
-	fi
-	@gnome-extensions pack --podir=po --extra-source='quake-mode.js' src
-	@FILE_SIZE_KB=$$($$(which stat) -c%s "$(PACKED_EXTENSION_FILE)" | awk '{printf "%.2f KB", $$1/1024}'); echo "Packed $(NAME): $$FILE_SIZE_KB"
+pack:
+	@python3 scripts/build.py
 
 uninstall:
 	@echo "Uninstalling $(NAME) extension..."
@@ -28,7 +23,5 @@ uninstall:
 	echo "Extension $(EXTENSION_ID) not installed. Nothing to do."; \
 	fi
 
-install: compile pack uninstall
-	@echo "Installing $(NAME) extension ..."
-	@gnome-extensions install "$(PACKED_EXTENSION_FILE)"
-	@echo "Done installing. To see it in action restart your session."
+install: pack
+	@python3 scripts/install-local.py "$(PACKED_EXTENSION_FILE)"
