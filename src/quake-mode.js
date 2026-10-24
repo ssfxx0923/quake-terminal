@@ -6,6 +6,7 @@ import Meta from "gi://Meta";
 import { PACKAGE_VERSION } from "resource:///org/gnome/shell/misc/config.js";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { animationClip, slideOffset } from "./sidebar.js";
+import { SidebarVisibility } from "./visibility.js";
 
 const SHELL_VERSION = Number.parseInt(PACKAGE_VERSION.split(".")[0]);
 
@@ -118,6 +119,7 @@ export const QuakeMode = class {
     this._requestedMonitorIndex = null;
     this._desiredVisible = false;
     this._animationState = null;
+    this._visibility = null;
 
     /**
      *@type {Meta.Window}
@@ -139,12 +141,15 @@ export const QuakeMode = class {
      */
     this._settingsWatchingListIds = [];
 
-    ["vertical-size", "horizontal-size", "horizontal-alignment", "slide-edge"].forEach(
+    ["vertical-size", "horizontal-size", "horizontal-alignment", "slide-edge", "primary-monitor-only"].forEach(
       (prefAdjustment) => {
         const settingsId = settings.connect(
           `changed::${prefAdjustment}`,
           () => {
-            this._fitTerminalToMainMonitor();
+            if (prefAdjustment === "primary-monitor-only")
+              this.resetMonitor();
+            else
+              this._fitTerminalToMainMonitor();
           }
         );
 
@@ -253,6 +258,8 @@ export const QuakeMode = class {
   }
 
   get monitorDisplayScreenIndex() {
+    if (this._settings.get_boolean("primary-monitor-only"))
+      return Shell.Global.get().display.get_primary_monitor();
     if (this._requestedMonitorIndex !== null &&
         this._requestedMonitorIndex < Main.layoutManager.monitors.length)
       return this._requestedMonitorIndex;
@@ -290,6 +297,23 @@ export const QuakeMode = class {
     return Shell.Global.get().display.get_primary_monitor();
   }
 
+  /** Whether the sidebar is starting, visible, resizing or still sliding closed. */
+  get isPresenting() {
+    if (this._internalState === QuakeMode.LIFECYCLE.DEAD)
+      return false;
+    return this._internalState === QuakeMode.LIFECYCLE.STARTING ||
+      this._internalState === QuakeMode.LIFECYCLE.CREATED_ACTOR ||
+      this._desiredVisible || this._animationState !== null ||
+      Boolean(this.terminalWindow && !this.terminalWindow.minimized);
+  }
+
+  /** The display occupied by the current presentation, including startup. */
+  get activeMonitorIndex() {
+    if (this._internalState === QuakeMode.LIFECYCLE.RUNNING && this.terminalWindow)
+      return this.terminalWindow.get_monitor();
+    return this.monitorDisplayScreenIndex;
+  }
+
   /**
    * Gets the monitor index by physical position on the X axis.
    *
@@ -317,14 +341,14 @@ export const QuakeMode = class {
   destroy() {
     _log(`*** QuakeTerminal@destroy - Starting destroy action ***`);
     this._clearAnimationClip?.();
+    this._visibility?.destroy();
+    this._visibility = null;
     const actor = this.actor;
     if (actor) {
       actor.remove_all_transitions();
       actor.translation_x = 0;
       actor.translation_y = 0;
       actor.opacity = 255;
-      // A disabled extension must leave its window reachable normally.
-      delete this.terminalWindow.skip_taskbar;
     }
     if (this._sourceTimeoutLoopId) {
       GLib.Source.remove(this._sourceTimeoutLoopId);
@@ -373,6 +397,8 @@ export const QuakeMode = class {
     this._terminal = null;
     this._terminalWindow = null;
     this._internalState = QuakeMode.LIFECYCLE.DEAD;
+    this._desiredVisible = false;
+    this._animationState = null;
     this._isTaskbarConfigured = null;
     // @ts-ignore
     Main.wm._shouldAnimateActor = this._original_shouldAnimateActor;
@@ -395,6 +421,7 @@ export const QuakeMode = class {
 
   /** Forget a monitor that may have disappeared after a display change. */
   resetMonitor() {
+    this.hideImmediately();
     this._requestedMonitorIndex = null;
     this._fitTerminalToMainMonitor();
   }
@@ -406,6 +433,15 @@ export const QuakeMode = class {
    * @returns {Promise<void>} Completion of terminal startup.
    */
   async show(monitorIndex = null) {
+    if (Main.overview.visible) {
+      this.hideImmediately();
+      return;
+    }
+    if (this.isPresenting) {
+      if (monitorIndex !== null && monitorIndex !== this.activeMonitorIndex)
+        return;
+      monitorIndex = this.activeMonitorIndex;
+    }
     const previousMonitor = this.monitorDisplayScreenIndex;
     this._requestedMonitorIndex = monitorIndex;
     const alreadyVisible = this._desiredVisible && this.terminalWindow &&
@@ -587,6 +623,11 @@ export const QuakeMode = class {
     }
 
     this.terminalWindow.stick();
+    if (!this._desiredVisible) {
+      this._internalState = QuakeMode.LIFECYCLE.RUNNING;
+      this.hideImmediately();
+      return true;
+    }
 
     // Defined at this scope so the unconditional fallback timer below can also
     // call it when the `map` signal fired before our handler was connected.
@@ -606,6 +647,10 @@ export const QuakeMode = class {
       if (this._internalState !== QuakeMode.LIFECYCLE.CREATED_ACTOR) return;
       _log(`*** QuakeTerminal@advanceToRunning - Advancing to RUNNING ***`);
       this._internalState = QuakeMode.LIFECYCLE.RUNNING;
+      if (!this._desiredVisible) {
+        this.hideImmediately();
+        return;
+      }
       this._showTerminalAfterResize();
     };
 
@@ -734,7 +779,7 @@ export const QuakeMode = class {
     Main.wm.skipNextEffect(actor);
     Main.activateWindow(this.terminalWindow);
     actor.ease({
-      mode: Clutter.AnimationMode.EASE_OUT_CUBIC,
+      mode: Clutter.AnimationMode.EASE_IN_OUT_CUBIC,
       translation_x: 0,
       translation_y: 0,
       opacity: 255,
@@ -755,7 +800,7 @@ export const QuakeMode = class {
     const clearClip = this._clipAnimation(actor);
     actor.ease({
       ...this._hiddenOffset(),
-      mode: Clutter.AnimationMode.EASE_IN_CUBIC,
+      mode: Clutter.AnimationMode.EASE_IN_OUT_CUBIC,
       duration: this._settings.get_int("animation-time"),
       onStopped: () => clearClip(),
       onComplete: () => {
@@ -767,6 +812,23 @@ export const QuakeMode = class {
         this._animationState = null;
       },
     });
+  }
+
+  /** Keep the underlying window minimized across Overview and app-grid changes. */
+  hideImmediately() {
+    this._desiredVisible = false;
+    this._cancelWaitForResize();
+    const actor = this.actor;
+    if (actor) {
+      actor.remove_all_transitions();
+      this._clearAnimationClip?.();
+      actor.opacity = 0;
+      Main.wm.skipNextEffect(actor);
+      this.terminalWindow.minimize();
+      actor.translation_x = 0;
+      actor.translation_y = 0;
+    }
+    this._animationState = null;
   }
 
   /** Wait for Wayland's resize acknowledgement before starting the animation. */
@@ -883,20 +945,10 @@ export const QuakeMode = class {
   }
 
   _configureSkipTaskbarProperty() {
-    const terminalWindow = this.terminalWindow;
-    const shouldSkipTaskbar = this._settings.get_boolean("skip-taskbar");
-
-    Object.defineProperty(terminalWindow, "skip_taskbar", {
-      get() {
-        if (terminalWindow && shouldSkipTaskbar) {
-          return true;
-        }
-
-        return this.is_skip_taskbar();
-      },
-      configurable: true,
-    });
-
+    if (!this._visibility)
+      this._visibility = new SidebarVisibility(this.terminalWindow,
+        this._terminal, Shell.AppSystem.get_default());
+    this._visibility.setHidden(this._settings.get_boolean("skip-taskbar"));
     this._isTaskbarConfigured = true;
   }
 

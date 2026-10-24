@@ -29,13 +29,14 @@ import {
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import * as PointerWatcher from "resource:///org/gnome/shell/ui/pointerWatcher.js";
 import { QuakeMode } from "./quake-mode.js";
-import { EdgeDwell, monitorAtEdge } from "./sidebar.js";
+import { EdgeDwell, revealMonitorAtPointer } from "./sidebar.js";
 
 export default class QuakeTerminalExtension extends Extension {
   enable() {
     this._settings = this.getSettings();
     this._appSystem = Shell.AppSystem.get_default();
     this._quakeMode = null;
+    this._edgeBlockedUntilLeave = false;
     this._edgeDwell = new EdgeDwell(
       (delay, callback) => GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
         callback();
@@ -51,20 +52,32 @@ export default class QuakeTerminalExtension extends Extension {
     this._pointerWatch = PointerWatcher.getPointerWatcher().addWatch(
       40, () => this._updateEdge()
     );
-    this._edgeSettingIds = ["slide-edge", "hover-enabled", "hover-delay", "hover-width"]
+    this._edgeSettingIds = ["slide-edge", "hover-enabled", "hover-delay", "hover-width",
+      "primary-monitor-only", "hover-lower-half-only"]
       .map(key => this._settings.connect(`changed::${key}`, () => this._edgeDwell.reset()));
     this._monitorsChangedId = Main.layoutManager.connect("monitors-changed", () => {
       this._edgeDwell.reset();
+      this._edgeBlockedUntilLeave = true;
       this._quakeMode?.resetMonitor();
+    });
+    this._overviewShowingId = Main.overview.connect("showing", () => {
+      this._edgeDwell.reset();
+      this._edgeBlockedUntilLeave = true;
+      this._quakeMode?.hideImmediately();
+    });
+    this._overviewHiddenId = Main.overview.connect("hidden", () => {
+      this._edgeDwell.reset();
+      this._quakeMode?.hideImmediately();
+      // Returning with the pointer still at the edge is not a fresh reveal.
+      const [x, y] = global.get_pointer();
+      this._edgeBlockedUntilLeave = this._triggerMonitor(x, y) !== null;
     });
 
     Main.wm.addKeybinding(
       "terminal-shortcut",
       this._settings,
       Meta.KeyBindingFlags.IGNORE_AUTOREPEAT,
-      Shell.ActionMode.NORMAL |
-        Shell.ActionMode.OVERVIEW |
-        Shell.ActionMode.POPUP,
+      Shell.ActionMode.NORMAL,
       () =>
         this._handleQuakeModeTerminal().catch((reason) => console.log(reason))
     );
@@ -78,6 +91,8 @@ export default class QuakeTerminalExtension extends Extension {
     this._edgeDwell = null;
     this._edgeSettingIds.forEach(id => this._settings.disconnect(id));
     Main.layoutManager.disconnect(this._monitorsChangedId);
+    Main.overview.disconnect(this._overviewShowingId);
+    Main.overview.disconnect(this._overviewHiddenId);
 
     if (this._quakeMode) {
       this._quakeMode.destroy();
@@ -86,6 +101,22 @@ export default class QuakeTerminalExtension extends Extension {
     this._settings = null;
     this._appSystem = null;
     this._quakeMode = null;
+  }
+
+  /**
+   * @param {number} x - Pointer X in logical pixels.
+   * @param {number} y - Pointer Y in logical pixels.
+   * @returns {number|null} Monitor allowed by the configured trigger zone.
+   */
+  _triggerMonitor(x, y) {
+    return revealMonitorAtPointer(Main.layoutManager.monitors, Main.layoutManager.primaryIndex, x, y, {
+      edge: this._settings.get_string("slide-edge"),
+      width: this._settings.get_int("hover-width"),
+      primaryOnly: this._settings.get_boolean("primary-monitor-only"),
+      lowerHalfOnly: this._settings.get_boolean("hover-lower-half-only"),
+      presentationActive: this._quakeMode?.isPresenting ?? false,
+      activeMonitor: this._quakeMode?.activeMonitorIndex ?? null,
+    });
   }
 
   /**
@@ -101,8 +132,12 @@ export default class QuakeTerminalExtension extends Extension {
     if (modifiers & (Clutter.ModifierType.BUTTON1_MASK |
         Clutter.ModifierType.BUTTON2_MASK | Clutter.ModifierType.BUTTON3_MASK))
       return null;
-    const index = monitorAtEdge(Main.layoutManager.monitors, x, y,
-      this._settings.get_string("slide-edge"), this._settings.get_int("hover-width"));
+    const index = this._triggerMonitor(x, y);
+    if (this._edgeBlockedUntilLeave) {
+      if (index === null)
+        this._edgeBlockedUntilLeave = false;
+      return null;
+    }
     if (index !== null && Main.layoutManager.monitors[index]?.inFullscreen)
       return null;
     return index;
@@ -119,6 +154,8 @@ export default class QuakeTerminalExtension extends Extension {
    * @returns {Promise<void>} Completion of window activation.
    */
   _handleQuakeModeTerminal(showOnly = false, monitorIndex = null) {
+    if (Main.overview.visible)
+      return Promise.resolve();
     if (this._quakeMode) {
       if (
         this._quakeMode._internalState === QuakeMode.LIFECYCLE.STARTING ||

@@ -73,14 +73,15 @@
   		<description>When enabled, terminal window will appear on top of all other non-topmost windows</description>
 		</key>
 		<key name="animation-time" type="i">
-      <default>180</default>
+      <range min="0" max="2000"/>
+      <default>300</default>
       <summary>Animation time</summary>
       <description>Duration of the dropdown animation in milliseconds</description>
 		</key>
 		<key name="skip-taskbar" type="b">
 			<default>true</default>
-			<summary>Hide terminal window in certain modes</summary>
-  		<description>When enabled, the terminal window will not appear in overview mode or when using Alt+Tab.</description>
+			<summary>Hide the sidebar from Dock and window switchers</summary>
+      <description>Hide only the managed sidebar from the Dock, Overview and Alt+Tab; other windows of the same app remain visible.</description>
 		</key>
     <key name="launch-args-map" type="a{ss}">
       <default>{}</default>
@@ -105,6 +106,14 @@
       <range min="1" max="16"/>
       <default>2</default>
       <summary>Edge trigger width in logical pixels</summary>
+    </key>
+    <key name="primary-monitor-only" type="b">
+      <default>false</default>
+      <summary>Keep the sidebar and pointer activation on the primary display</summary>
+    </key>
+    <key name="hover-lower-half-only" type="b">
+      <default>true</default>
+      <summary>Restrict the right-edge trigger to the lower half of the display</summary>
     </key>
 	</schema>
 </schemalist>

@@ -23,14 +23,15 @@ output.mkdir(exist_ok=True)
 subprocess.run(["glib-compile-schemas", "--strict", "--dry-run", str(source / "schemas")], check=True)
 with tempfile.TemporaryDirectory(prefix="quake-sidebar-build-") as directory:
     stage = Path(directory)
-    for filename in ("extension.js", "quake-mode.js", "sidebar.js", "prefs.js", "metadata.json"):
+    for filename in ("extension.js", "quake-mode.js", "sidebar.js", "visibility.js", "prefs.js", "metadata.json"):
         shutil.copy2(source / filename, stage / filename)
     (stage / "schemas").mkdir()
     for schema in (source / "schemas").glob("*.gschema.xml"):
         shutil.copy2(schema, stage / "schemas" / schema.name)
     shutil.copy2(root / "LICENSE", stage / "LICENSE")
     command = ["gnome-extensions", "pack", "--force", "--out-dir", str(output),
-               "--extra-source=quake-mode.js", "--extra-source=sidebar.js", "--extra-source=LICENSE"]
+               "--extra-source=quake-mode.js", "--extra-source=sidebar.js",
+               "--extra-source=visibility.js", "--extra-source=LICENSE"]
     if shutil.which("msgfmt"):
         shutil.copytree(source / "po", stage / "po")
         command.append("--podir=po")

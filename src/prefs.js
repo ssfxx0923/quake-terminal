@@ -616,7 +616,7 @@ export default class QuakeTerminalPreferences extends ExtensionPreferences {
       adjustment: new Gtk.Adjustment({
         lower: 0,
         step_increment: 5,
-        upper: 500,
+        upper: 1500,
         value: settings.get_int("animation-time"),
       }),
     });
@@ -652,6 +652,20 @@ export default class QuakeTerminalPreferences extends ExtensionPreferences {
     });
     settings.bind("hover-enabled", hoverRow, "active", Gio.SettingsBindFlags.DEFAULT);
     positionSettingsGroup.add(hoverRow);
+
+    const primaryOnlyRow = new Adw.SwitchRow({
+      title: _("Primary Display Only"),
+      subtitle: _("Keep the sidebar and mouse activation on the primary display"),
+    });
+    settings.bind("primary-monitor-only", primaryOnlyRow, "active", Gio.SettingsBindFlags.DEFAULT);
+    positionSettingsGroup.add(primaryOnlyRow);
+
+    const lowerHalfRow = new Adw.SwitchRow({
+      title: _("Lower Half of Right Edge Only"),
+      subtitle: _("Avoid activating the sidebar near the top-right status menu"),
+    });
+    settings.bind("hover-lower-half-only", lowerHalfRow, "active", Gio.SettingsBindFlags.DEFAULT);
+    positionSettingsGroup.add(lowerHalfRow);
 
     const hoverDelayRow = new Adw.SpinRow({
       title: _("Hover Delay (ms)"),
@@ -754,9 +768,9 @@ export default class QuakeTerminalPreferences extends ExtensionPreferences {
 
     // Skip taskbar
     const skipTaskbarRow = new Adw.SwitchRow({
-      title: _("Hide In Certain Modes"),
+      title: _("Hide Sidebar from Dock and Switchers"),
       subtitle: _(
-        "When enabled, the terminal window will not appear in overview mode or when using Alt+Tab."
+        "Hide the sidebar from the Dock, Overview and Alt+Tab. Regular terminal windows remain visible."
       ),
     });
     positionSettingsGroup.add(skipTaskbarRow);

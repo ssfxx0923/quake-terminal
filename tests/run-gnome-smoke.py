@@ -18,18 +18,34 @@ artifacts.mkdir(parents=True, exist_ok=True)
 uuid = "quake-terminal-sidebar@ssfxx0923.github.io"
 with tempfile.TemporaryDirectory(prefix="quake-sidebar-test-", ignore_cleanup_errors=True) as directory:
     state = Path(directory)
+    config = state / "config"
+    config.mkdir()
+    empty = state / "empty-user-folders"
+    empty.mkdir()
+    (config / "user-dirs.dirs").write_text("\n".join(
+        f'XDG_{name}_DIR="{empty}"' for name in
+        ("DESKTOP", "DOWNLOAD", "TEMPLATES", "PUBLICSHARE", "DOCUMENTS", "MUSIC", "PICTURES", "VIDEOS")
+    ) + "\n")
     extension = state / "data/gnome-shell/extensions" / uuid
     shutil.copytree(root / "src", extension)
     subprocess.run(["glib-compile-schemas", str(extension / "schemas")], check=True)
+    # Avoid GNOME's first-login network update check in this disposable profile.
+    major = subprocess.check_output(["gnome-shell", "--version"], text=True).split()[-1].split(".")[0]
+    (extension.parent.parent / f"update-check-{major}").touch()
+    dock_source = Path("/usr/share/gnome-shell/extensions/ubuntu-dock@ubuntu.com")
     runtime = state / "runtime"
     runtime.mkdir(mode=0o700)
     environment = os.environ.copy()
     environment["XDG_RUNTIME_DIR"] = str(runtime)
     environment["SIDEBAR_ARTIFACT_DIR"] = str(artifacts)
+    if dock_source.exists():
+        dock = extension.parent / dock_source.name
+        shutil.copytree(dock_source, dock)
+        environment["SIDEBAR_TEST_DOCK_PATH"] = str(dock)
     for variable, folder in (("XDG_CONFIG_HOME", "config"), ("XDG_DATA_HOME", "data"),
                              ("XDG_CACHE_HOME", "cache"), ("XDG_STATE_HOME", "state")):
         environment[variable] = str(state / folder)
-    environment.update(GSETTINGS_BACKEND="memory", XDG_CURRENT_DESKTOP="GNOME",
+    environment.update(GSETTINGS_BACKEND="keyfile", XDG_CURRENT_DESKTOP="GNOME",
                        LIBGL_ALWAYS_SOFTWARE="1", GNOME_SHELL_SESSION_MODE="user",
                        NO_AT_BRIDGE="1", GTK_USE_PORTAL="0", GIO_USE_VFS="local")
     command = ["dbus-run-session", "--", "gnome-shell", "--headless", "--mode=user",

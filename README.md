@@ -2,17 +2,21 @@
 
 基于 [diegodario88/quake-terminal](https://github.com/diegodario88/quake-terminal) 的持续维护 fork，使用系统中已有的终端。
 
-鼠标在显示器右边缘停留约 180 毫秒，终端从右侧滑入；点击其他应用后，窗口向右滑出。也可以按 **Super + Enter** 显示或收回。每次进入边缘只展开一次，鼠标停留不会反复切换。首次使用可以直接碰边，无需先用快捷键启动。
+鼠标在任一显示屏右边缘的下半段停留约 180 毫秒，终端从右侧滑入；点击其他应用后，窗口向右滑出。也可以按 **Super + Enter** 显示或收回。每次进入边缘只展开一次，鼠标停留不会反复切换。首次使用可以直接碰边，无需先用快捷键启动。
 
 ## Sidebar behavior
 
 - Right edge by default, 40% of the monitor width and the full work-area height.
 - Pointer hover and keyboard shortcuts share the same terminal window and session.
+- The sidebar stays out of Ubuntu Dock, Overview and Alt+Tab. Normally opened terminal windows still have their own Dock icon and accurate window counts.
 - Position, reveal, hide and close animations use the same edge.
 - Animations are clipped to the current monitor, including stacked and offset displays.
-- Moving between displays chooses the monitor containing the hovered edge.
+- Both displays use only the lower half of their right edge as the reveal zone, keeping status menus clear.
+- While the sidebar is opening, visible or closing, another display cannot summon or move it. After it has fully retracted, a fresh edge visit can reveal the same terminal on either display.
 - An interrupted hide can reverse into a show without a later minimize callback.
 - Top-edge mode remains available in Preferences.
+- Reveal and hide use a slower 300 ms ease-in/ease-out animation.
+- Entering Super Overview or the application grid minimizes the sidebar. Returning to the desktop keeps it hidden until a fresh edge visit or shortcut.
 - Hover is suspended during dragging, fullscreen applications, the overview and the lock screen.
 - The fork has its own UUID and settings schema so upstream extension updates cannot overwrite it.
 
@@ -44,7 +48,7 @@ The package is written to `dist/quake-terminal-sidebar@ssfxx0923.github.io.shell
 gnome-extensions prefs quake-terminal-sidebar@ssfxx0923.github.io
 ```
 
-Choose **Slide Edge**, **Reveal on Edge Hover**, **Hover Delay**, **Edge Width**, terminal application, window size, shortcut and focus behavior. The defaults use a two-logical-pixel trigger strip and 180 ms dwell/animation times. Automatic hiding is triggered by focus loss, not by moving the pointer outside the terminal while typing.
+Choose **Slide Edge**, **Reveal on Edge Hover**, **Hover Delay**, **Edge Width**, **Primary Display Only**, **Lower Half of Right Edge Only**, terminal application, window size, shortcut and focus behavior. The defaults use a two-logical-pixel trigger strip and 180 ms dwell and 300 ms animation times. Automatic hiding is triggered by focus loss, not by moving the pointer outside the terminal while typing.
 
 ## Development and verification
 
@@ -61,7 +65,7 @@ The Node tests cover edge dwell cancellation, repeated pointer visits, monitor s
 python3 tests/run-gnome-smoke.py
 ```
 
-The integration test requires GNOME Shell's headless backend, its performance helper and Ptyxis. It checks pointer-triggered startup, actual window positioning, animation direction, rapid reversal, focus loss and cleanup. The local fork was developed on Ubuntu 26.04 / GNOME 50; the upstream compatibility declarations remain in `src/metadata.json`.
+The integration test requires GNOME Shell's headless backend, its performance helper and Ptyxis. It checks pointer-triggered startup, actual window positioning, animation direction, rapid reversal, focus loss and cleanup. On Ubuntu it also loads the installed Ubuntu Dock in the isolated session and verifies sidebar-only, normal-terminal and last-normal-window-closed behavior. The local fork was developed on Ubuntu 26.04 / GNOME 50; the upstream compatibility declarations remain in `src/metadata.json`.
 
 GNOME caches extension JavaScript for the duration of a desktop session. After installing an updated build, log out and back in to load the new code. Disabling and enabling alone is not a source reload on GNOME 50.
 

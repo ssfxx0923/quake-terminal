@@ -3,7 +3,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { animationClip, EdgeDwell, monitorAtEdge, slideOffset } from "../src/sidebar.js";
+import { animationClip, EdgeDwell, monitorAtEdge, revealMonitorAtPointer, slideOffset } from "../src/sidebar.js";
 
 const monitors = [
   { index: 0, x: 357, y: 0, width: 1920, height: 1080 },
@@ -120,4 +120,37 @@ test("disabling the extension cancels pending work and allows a fresh start", ()
   fixture.dwell.update(1, 180);
   fixture.fire();
   assert.deepEqual(fixture.activated, [1]);
+});
+
+const primaryZone = { edge: "right", width: 2, primaryOnly: true, lowerHalfOnly: true };
+
+test("only the primary display's lower-right edge activates, including a nonzero primary index", () => {
+  assert.equal(revealMonitorAtPointer(monitors, 1, 2559, 1800, primaryZone), 1);
+  assert.equal(revealMonitorAtPointer(monitors, 1, 2559, 1799, primaryZone), null);
+  assert.equal(revealMonitorAtPointer(monitors, 1, 2559, 2519, primaryZone), 1);
+  assert.equal(revealMonitorAtPointer(monitors, 1, 2557, 2100, primaryZone), null);
+  assert.equal(revealMonitorAtPointer(monitors, 1, 2276, 900, primaryZone), null);
+  assert.equal(revealMonitorAtPointer(monitors, 1, 2559, 2520, primaryZone), null);
+});
+
+test("primary-display changes move the trigger restriction to the new main screen", () => {
+  assert.equal(revealMonitorAtPointer(monitors, 0, 2276, 900, primaryZone), 0);
+  assert.equal(revealMonitorAtPointer(monitors, 0, 2559, 2100, primaryZone), null);
+  assert.equal(revealMonitorAtPointer([], 0, 2559, 2100, primaryZone), null);
+});
+
+test("both lower-right edges work when the sidebar is fully closed", () => {
+  const options = { ...primaryZone, primaryOnly: false, presentationActive: false };
+  assert.equal(revealMonitorAtPointer(monitors, 1, 2276, 900, options), 0);
+  assert.equal(revealMonitorAtPointer(monitors, 1, 2559, 2100, options), 1);
+  assert.equal(revealMonitorAtPointer(monitors, 1, 2276, 200, options), null);
+  assert.equal(revealMonitorAtPointer(monitors, 1, 2559, 1200, options), null);
+});
+
+test("another display is blocked for the entire visible and closing presentation", () => {
+  const options = { ...primaryZone, primaryOnly: false, presentationActive: true, activeMonitor: 1 };
+  assert.equal(revealMonitorAtPointer(monitors, 1, 2276, 900, options), null);
+  assert.equal(revealMonitorAtPointer(monitors, 1, 2559, 2100, options), 1);
+  options.presentationActive = false;
+  assert.equal(revealMonitorAtPointer(monitors, 1, 2276, 900, options), 0);
 });

@@ -26,6 +26,30 @@ export function monitorAtEdge(monitors, x, y, edge, width) {
 }
 
 /**
+ * Apply the primary-display and lower-half restrictions to pointer activation.
+ *
+ * @param {object[]} monitors - Logical monitor rectangles.
+ * @param {number} primaryIndex - Current primary monitor index.
+ * @param {number} x - Pointer X in logical pixels.
+ * @param {number} y - Pointer Y in logical pixels.
+ * @param {object} options - Edge geometry, display restrictions and presentation state.
+ * @returns {number|null} Allowed monitor index, or null outside the trigger zone.
+ */
+export function revealMonitorAtPointer(monitors, primaryIndex, x, y, options) {
+  const candidates = options.primaryOnly
+    ? monitors.filter(monitor => monitor.index === primaryIndex) : monitors;
+  const index = monitorAtEdge(candidates, x, y, options.edge, options.width);
+  if (index === null)
+    return null;
+  const monitor = candidates.find(candidate => candidate.index === index);
+  if (options.lowerHalfOnly && options.edge === "right" && y < monitor.y + monitor.height / 2)
+    return null;
+  if (options.presentationActive && index !== options.activeMonitor)
+    return null;
+  return index;
+}
+
+/**
  * Calculate a translation that moves the entire window past its screen edge.
  *
  * @param {string} edge - Right or top screen edge.
