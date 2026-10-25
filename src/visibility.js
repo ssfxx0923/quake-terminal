@@ -35,8 +35,9 @@ export class SidebarVisibility {
 
   /**
    * @param {boolean} hidden - Whether only the sidebar should be hidden.
+   * @param {boolean} refresh - Whether to notify consumers of a live window.
    */
-  setHidden(hidden) {
+  setHidden(hidden, refresh = true) {
     if (hidden === this._hidden)
       return;
     this._hidden = hidden;
@@ -76,15 +77,23 @@ export class SidebarVisibility {
       this._windowsChangedId = null;
       this._restore();
     }
-    this._window.notify("skip-taskbar");
+    if (!refresh) return;
+    // These are JS-only filters. A synthetic notify::skip-taskbar would make
+    // the native WindowTracker untrack/retrack an unchanged Wayland window.
+    // During close that corrupts the running-app list (shell_app_compare).
+    // Refresh JS consumers without pretending the native property changed.
     this._app.emit("windows-changed");
     if (this._windowsChangedId === null)
       this._appSystem.emit("app-state-changed", this._app);
   }
 
-  /** Restore original properties and running-app behavior on disable. */
-  destroy() {
-    this.setHidden(false);
+  /**
+   * Restore original properties without publishing a window being unmanaged.
+   *
+   * @param {boolean} windowUnmanaged - Native removal is still in progress.
+   */
+  destroy(windowUnmanaged = false) {
+    this.setHidden(false, !windowUnmanaged);
   }
 
   /**

@@ -1,7 +1,7 @@
 {
   "name": "quake-terminal-sidebar",
   "description": "Edge-triggered GNOME terminal sidebar",
-  "version": "1.4.0-sidebar.2",
+  "version": "1.4.0-sidebar.3",
   "private": true,
   "repository": {
     "type": "git",

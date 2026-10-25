@@ -213,7 +213,7 @@ export const QuakeMode = class {
             _log(
               `*** QuakeTerminal@Unmanaged Called unmanaged after suspend or lockscreen ***`
             );
-            this.destroy();
+            this.destroy(true);
           }
         );
       }
@@ -338,13 +338,23 @@ export const QuakeMode = class {
     return Shell.Global.get().display.get_primary_monitor();
   }
 
-  destroy() {
+  /**
+   * Release the controller without reentering native window removal.
+   *
+   * @param {boolean} windowUnmanaged - Called during Meta.Window removal.
+   */
+  destroy(windowUnmanaged = false) {
+    if (this._internalState === QuakeMode.LIFECYCLE.DEAD) return;
+    this._internalState = QuakeMode.LIFECYCLE.DEAD;
+    this._desiredVisible = false;
     _log(`*** QuakeTerminal@destroy - Starting destroy action ***`);
     this._clearAnimationClip?.();
-    this._visibility?.destroy();
+    this._visibility?.destroy(windowUnmanaged);
     this._visibility = null;
     const actor = this.actor;
-    if (actor) {
+    // Mutter owns the actor once unmanagement starts. Do not cancel its
+    // destroy effect or reset a closing window's opacity/position.
+    if (actor && !windowUnmanaged) {
       actor.remove_all_transitions();
       actor.translation_x = 0;
       actor.translation_y = 0;
@@ -396,8 +406,6 @@ export const QuakeMode = class {
     this._settingsWatchingListIds = [];
     this._terminal = null;
     this._terminalWindow = null;
-    this._internalState = QuakeMode.LIFECYCLE.DEAD;
-    this._desiredVisible = false;
     this._animationState = null;
     this._isTaskbarConfigured = null;
     // @ts-ignore
@@ -547,13 +555,11 @@ export const QuakeMode = class {
           // Keeps the Terminal out of Overview mode and Alt-Tab window switching
           this._configureSkipTaskbarProperty();
 
-          this._handleAlwaysOnTop();
-
           this._terminalWindowUnmanagedId = this.terminalWindow.connect(
             "unmanaged",
             () => {
               _log(`*** QuakeTerminal@Unmanaged Called unmanaged ***`);
-              this.destroy();
+              this.destroy(true);
             }
           );
 
@@ -777,6 +783,7 @@ export const QuakeMode = class {
     const clearClip = this._clipAnimation(actor);
     parent.set_child_above_sibling(actor, null);
     Main.wm.skipNextEffect(actor);
+    this._handleAlwaysOnTop();
     Main.activateWindow(this.terminalWindow);
     actor.ease({
       mode: Clutter.AnimationMode.EASE_IN_OUT_CUBIC,
@@ -804,7 +811,8 @@ export const QuakeMode = class {
       duration: this._settings.get_int("animation-time"),
       onStopped: () => clearClip(),
       onComplete: () => {
-        if (this._desiredVisible) return;
+        if (this._internalState === QuakeMode.LIFECYCLE.DEAD ||
+            this._desiredVisible || !this.terminalWindow) return;
         Main.wm.skipNextEffect(actor);
         this.terminalWindow.minimize();
         actor.translation_x = 0;
@@ -979,21 +987,28 @@ export const QuakeMode = class {
       const originalActorAnimate = actor.ease;
 
       /**
-       * Intercept the next call to actor.animate() to perform a custom bottom-up close animation.
-       * Afterward, immediately restore the original behavior.
+       * Slide toward the configured edge while preserving GNOME's effect
+       * completion contract, including cancellation during actor disposal.
+       *
+       * @param {object} params - GNOME's native destroy animation callbacks.
        */
-      actor.ease = function () {
+      actor.ease = function (params) {
         actor.ease = originalActorAnimate;
         const clearClip = self._clipAnimation(actor);
 
         originalActorAnimate.call(actor, {
+          ...params,
+          scale_x: 1,
+          scale_y: 1,
           mode: Clutter.AnimationMode.EASE_OUT_QUAD,
           ...self._hiddenOffset(),
           duration: self._settings.get_int("animation-time"),
-          onStopped: () => clearClip(),
-          onComplete: () => {
-            // @ts-ignore
-            Main.wm._destroyWindowDone(Main.wm._shellwm, actor);
+          onStopped: () => {
+            clearClip();
+            // completed_destroy must run from onStopped, after Clutter has
+            // removed the transition. onComplete destroys the actor while
+            // its transition table is still being iterated.
+            params.onStopped?.();
           },
         });
       };
@@ -1037,6 +1052,10 @@ export const QuakeMode = class {
   }
 
   _handleAlwaysOnTop() {
+    // windows-changed can arrive before Mutter has added the new window to
+    // its stack. Raising it there hits stack_position assertions on reopen.
+    if (this._internalState !== QuakeMode.LIFECYCLE.RUNNING || !this.terminalWindow)
+      return;
     const shouldAlwaysOnTop = this._settings.get_boolean("always-on-top");
 
     if (!shouldAlwaysOnTop && !this.terminalWindow.is_above()) {

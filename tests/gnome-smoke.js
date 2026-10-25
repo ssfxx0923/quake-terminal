@@ -89,8 +89,8 @@ export async function run() {
 
   move(monitor.x + monitor.width - 1, monitor.y + monitor.height * 0.75);
   await waitFor(() => extension._quakeMode?._internalState === "RUNNING", "hover launches Ptyxis");
-  const mode = extension._quakeMode;
-  const sidebar = mode.terminalWindow;
+  let mode = extension._quakeMode;
+  let sidebar = mode.terminalWindow;
   await waitFor(() => mode._animationState === null && mode.actor.opacity === 255 && !mode.terminalWindow.is_hidden(), "sidebar revealed");
   const area = mode.terminalWindow.get_work_area_for_monitor(monitor.index);
   const frame = mode.terminalWindow.get_frame_rect();
@@ -213,6 +213,49 @@ export async function run() {
   await Scripting.sleep(600);
   check(sidebar.is_hidden() && !mode._desiredVisible,
     "returning from the application grid does not flash the sidebar");
+  /* eslint-disable no-await-in-loop */
+  for (const phase of ["visible", "showing", "hiding", "minimized", "no-auto-hide", "no-animation"]) {
+    const closingMode = mode;
+    const closingSidebar = sidebar;
+    move(300, 300);
+    await Scripting.sleep(100);
+    settings.set_boolean("auto-hide-window", phase !== "no-auto-hide");
+    settings.set_int("animation-time", phase === "no-animation" ? 0 : 300);
+    mode.hideImmediately();
+    await mode.show(monitor.index);
+    if (phase === "showing") {
+      await waitFor(() => closingMode._animationState === "showing", "close during reveal animation");
+    } else {
+      await waitFor(() => closingMode._animationState === null && !closingSidebar.minimized, "sidebar ready to close");
+    }
+    if (phase === "hiding") {
+      mode._hideTerminalWithAnimation();
+      await Scripting.sleep(40);
+    } else if (phase === "minimized") {
+      mode.hideImmediately();
+    }
+    const closedActor = mode.actor;
+    sidebar.delete(global.get_current_time());
+    await waitFor(() => closingMode._internalState === "DEAD", "closing sidebar releases its controller");
+    mode.destroy(true);
+    check(!mode._visibility && !mode._terminalWindow && mode._settingsWatchingListIds.length === 0,
+      `close cleanup is complete and idempotent (${phase})`);
+    move(monitor.x + monitor.width - 1, monitor.y + monitor.height * 0.75);
+    await waitFor(() => extension._quakeMode !== closingMode && extension._quakeMode?._internalState === "RUNNING",
+      "hover creates a new terminal after closing the old one");
+    mode = extension._quakeMode;
+    sidebar = mode.terminalWindow;
+    const replacementMode = mode;
+    await waitFor(() => replacementMode._animationState === null && !replacementMode.terminalWindow.minimized,
+      "replacement sidebar revealed");
+    await waitFor(() => !global.get_window_actors().includes(closedActor) && !Main.wm._destroying.has(closedActor),
+      "closed actor and native destroy effect are released");
+    check(!Shell.AppSystem.get_default().get_running().includes(app) &&
+      !app.get_windows().includes(sidebar), `close and reopen safely preserves Dock filtering (${phase})`);
+  }
+  /* eslint-enable no-await-in-loop */
+  settings.set_boolean("auto-hide-window", true);
+  settings.set_int("animation-time", 300);
   settings.set_boolean("hover-enabled", false);
   new Gio.Subprocess({ argv: ["ptyxis", "--new-window", "--", "/usr/bin/true"] }).init(null);
   await waitFor(() => app.get_windows().length > 0, "normal terminal window opened");

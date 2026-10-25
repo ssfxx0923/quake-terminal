@@ -107,3 +107,29 @@ test("opening and closing normal windows refreshes the Dock and disconnects on d
   data.app.emit("windows-changed");
   assert.equal(data.refreshed.length, count);
 });
+
+test("JS visibility changes never notify the native skip-taskbar property", () => {
+  const data = fixture();
+  data.sidebar.notify = () => assert.fail("must not retrack a native Wayland window");
+  data.visibility.setHidden(true);
+  data.visibility.setHidden(false);
+  data.visibility.setHidden(true);
+  data.visibility.destroy();
+});
+
+test("unmanaged cleanup restores hooks silently and disconnects future refreshes", () => {
+  const data = fixture();
+  const getRunning = data.appSystem.get_running;
+  const getWindows = data.app.get_windows;
+  data.visibility.setHidden(true);
+  const count = data.refreshed.length;
+  const emit = data.app.emit;
+  data.app.emit = () => assert.fail("must not publish windows during native removal");
+  data.visibility.destroy(true);
+  assert.equal(data.app.get_windows, getWindows);
+  assert.equal(data.appSystem.get_running, getRunning);
+  assert.equal(data.refreshed.length, count);
+  data.visibility.destroy(true);
+  emit.call(data.app, "windows-changed");
+  assert.equal(data.refreshed.length, count);
+});

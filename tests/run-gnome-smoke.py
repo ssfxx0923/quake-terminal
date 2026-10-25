@@ -47,11 +47,17 @@ with tempfile.TemporaryDirectory(prefix="quake-sidebar-test-", ignore_cleanup_er
         environment[variable] = str(state / folder)
     environment.update(GSETTINGS_BACKEND="keyfile", XDG_CURRENT_DESKTOP="GNOME",
                        LIBGL_ALWAYS_SOFTWARE="1", GNOME_SHELL_SESSION_MODE="user",
-                       NO_AT_BRIDGE="1", GTK_USE_PORTAL="0", GIO_USE_VFS="local")
+                       NO_AT_BRIDGE="1", GTK_USE_PORTAL="0", GIO_USE_VFS="local",
+                       G_DEBUG="fatal-criticals")
     command = ["dbus-run-session", "--", "gnome-shell", "--headless", "--mode=user",
                "--virtual-monitor=1280x800", "--virtual-monitor=1600x900",
                f"--wayland-display=quake-test-{os.getpid()}",
                f"--automation-script={root / 'tests/gnome-smoke.js'}"]
+    if os.getenv("SIDEBAR_TEST_GDB"):
+        command[2:2] = ["gdb", "--batch", "-ex", "set debuginfod enabled off",
+                       "-ex", "run", "-ex",
+                       "python if gdb.selected_inferior().pid: gdb.execute('bt'); gdb.execute('call (void) gjs_dumpstack()')",
+                       "--args"]
     log = state / "gnome.log"
     with log.open("w") as output:
         process = subprocess.Popen(command, env=environment, stdout=output,

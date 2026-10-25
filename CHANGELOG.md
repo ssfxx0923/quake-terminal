@@ -1,3 +1,10 @@
+# 1.4.0-sidebar.3 (2026-10-24)
+
+- Fix GNOME Shell crashing after closing the sidebar terminal and summoning it again. Keep JS visibility filtering separate from native window-tracker notifications and restore hooks silently during window removal.
+- Make controller destruction idempotent, leave closing actors to Mutter and ignore stale hide completions after close. Complete destroy effects from GNOME's `onStopped` callback so actor disposal cannot mutate an active Clutter transition iterator.
+- Wait for the new window to map before applying always-on-top behavior.
+- Add native close/reopen regression coverage across six visibility and animation states.
+
 # [1.4.0](https://github.com/diegodario88/quake-terminal/compare/v1.3.0...v1.4.0) (2026-10-19)
 
 
