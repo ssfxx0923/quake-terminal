@@ -562,6 +562,9 @@ export const QuakeMode = class {
            */
           const actor = ourWindow.get_compositor_private();
           actor.set_name("quake-terminal-sidebar");
+          // Hide the inherited application geometry before map/resize effects
+          // can expose a maximized window during sidebar preparation.
+          actor.opacity = 0;
           this._terminalWindow = ourWindow;
           this._internalState = QuakeMode.LIFECYCLE.CREATED_ACTOR;
 
@@ -681,8 +684,9 @@ export const QuakeMode = class {
       _log(
         `*** QuakeTerminal@_adjustTerminalWindowPosition - actor already mapped, missed map signal, advancing immediately ***`
       );
-      this.actor.opacity = 0;
       Shell.Global.get().window_manager.emit("kill-window-effects", this.actor);
+      // GNOME's map completion restores opacity. Hide after completing it.
+      this.actor.opacity = 0;
       advanceToRunning();
       return true;
     }
@@ -697,10 +701,10 @@ export const QuakeMode = class {
         );
         return;
       }
-      this.actor.opacity = 0;
       Shell.Global.get().window_manager.disconnect(this._wmMapSignalId);
       this._wmMapSignalId = null;
       wm.emit("kill-window-effects", this.actor);
+      this.actor.opacity = 0;
       this._actorStageViewChangedId = this.actor.connect(
         "stage-views-changed",
         () => {
@@ -1043,6 +1047,15 @@ export const QuakeMode = class {
     ) {
       const stack = new Error().stack;
       const forClosing = stack.includes("_destroyWindow@");
+
+      // Native map effects restore opacity; native unmaximize effects also
+      // put a full-size snapshot in Main.uiGroup. Neither may run before the
+      // sidebar has acknowledged its initial size. Keep normal user-driven
+      // maximize/unmaximize effects once the sidebar is visible.
+      if (!forClosing && actor === self.actor &&
+          (self._internalState === QuakeMode.LIFECYCLE.CREATED_ACTOR ||
+           self._animationState === "resizing"))
+        return false;
 
       /**
        * We specifically handle window closing events, but only when our actor is the target.

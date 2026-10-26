@@ -1,3 +1,8 @@
+# 1.4.0-sidebar.5 (2026-10-26)
+
+- Keep new windows transparent while converting inherited maximized geometry to the sidebar size. Finish existing map effects before resetting opacity, and suppress native map/unmaximize animations during preparation so full-screen snapshots cannot appear ahead of the sidebar reveal.
+- Add maximized-close/reopen coverage with and without animations, including a new reveal on the other display. Sample painted frames in all eight close/reopen scenarios to reject full-width windows and native resize clones.
+
 # 1.4.0-sidebar.4 (2026-10-25)
 
 - Preserve the sidebar's acknowledged size when Ptyxis recalculates its character grid after closing a tab. Correct client resizes without restarting the reveal animation or resizing ordinary terminal windows.

@@ -269,13 +269,16 @@ export async function run() {
   check(sidebar.is_hidden() && !mode._desiredVisible,
     "returning from the application grid does not flash the sidebar");
   /* eslint-disable no-await-in-loop */
-  for (const phase of ["visible", "showing", "hiding", "minimized", "no-auto-hide", "no-animation"]) {
+  for (const phase of ["visible", "showing", "hiding", "minimized", "no-auto-hide", "no-animation", "maximized", "maximized-no-animation"]) {
     const closingMode = mode;
     const closingSidebar = sidebar;
+    const revealMonitor = phase === "maximized-no-animation" ? secondary : monitor;
+    const revealArea = sidebar.get_work_area_for_monitor(revealMonitor.index);
     move(300, 300);
     await Scripting.sleep(100);
     settings.set_boolean("auto-hide-window", phase !== "no-auto-hide");
-    settings.set_int("animation-time", phase === "no-animation" ? 0 : 300);
+    const maximized = phase.startsWith("maximized");
+    settings.set_int("animation-time", phase.endsWith("no-animation") ? 0 : 300);
     mode.hideImmediately();
     await mode.show(monitor.index);
     if (phase === "showing") {
@@ -289,6 +292,14 @@ export async function run() {
     } else if (phase === "minimized") {
       mode.hideImmediately();
     }
+    if (maximized) {
+      sidebar.maximize();
+      await waitFor(() => closingSidebar.is_maximized() &&
+        closingSidebar.get_frame_rect().width === area.width, "sidebar maximized before closing");
+      settings.set_value("launch-args-map", new GLib.Variant("a{ss}", {
+        "org.gnome.Ptyxis.desktop": "--new-window --maximize -- /usr/bin/sleep 120",
+      }));
+    }
     const closedActor = mode.actor;
     sidebar.delete(global.get_current_time());
     await waitFor(() => closingMode._internalState === "DEAD", "closing sidebar releases its controller");
@@ -297,7 +308,18 @@ export async function run() {
       `close cleanup is complete and idempotent (${phase})`);
     check(!mode._geometrySignalId && !mode._geometryLaterId && !mode._sidebarFrame,
       `closing releases the geometry constraint (${phase})`);
-    move(monitor.x + monitor.width - 1, monitor.y + monitor.height * 0.75);
+    const invalidFrames = [];
+    let revealedFrames = 0;
+    const paintId = global.stage.connect("after-paint", () => {
+      const candidate = extension._quakeMode;
+      if (!candidate || candidate === closingMode || !candidate.actor || candidate.actor.opacity === 0)
+        return;
+      revealedFrames++;
+      const rect = candidate.terminalWindow.get_frame_rect();
+      if (rect.width > Math.round(revealArea.width * 0.4) + 2 || candidate.actor.__animationInfo)
+        invalidFrames.push([rect.width, rect.height, candidate._animationState]);
+    });
+    move(revealMonitor.x + revealMonitor.width - 1, revealMonitor.y + revealMonitor.height * 0.75);
     await waitFor(() => extension._quakeMode !== closingMode && extension._quakeMode?._internalState === "RUNNING",
       "hover creates a new terminal after closing the old one");
     mode = extension._quakeMode;
@@ -305,6 +327,12 @@ export async function run() {
     const replacementMode = mode;
     await waitFor(() => replacementMode._animationState === null && !replacementMode.terminalWindow.minimized,
       "replacement sidebar revealed");
+    await Scripting.sleep(50);
+    global.stage.disconnect(paintId);
+    check(revealedFrames > 0 && invalidFrames.length === 0,
+      `reopened sidebar never paints a full-width window or native resize clone (${phase}): ${JSON.stringify(invalidFrames)}`);
+    check(sidebar.get_monitor() === revealMonitor.index,
+      `replacement sidebar reveals on the requested display (${phase})`);
     await waitFor(() => !global.get_window_actors().includes(closedActor) && !Main.wm._destroying.has(closedActor),
       "closed actor and native destroy effect are released");
     check(!Shell.AppSystem.get_default().get_running().includes(app) &&
@@ -312,6 +340,9 @@ export async function run() {
   }
   /* eslint-enable no-await-in-loop */
   settings.set_boolean("auto-hide-window", true);
+  settings.set_value("launch-args-map", new GLib.Variant("a{ss}", {
+    "org.gnome.Ptyxis.desktop": "--new-window -- /usr/bin/sleep 120",
+  }));
   settings.set_int("animation-time", 300);
   settings.set_boolean("hover-enabled", false);
   new Gio.Subprocess({ argv: ["ptyxis", "--new-window", "--", "/usr/bin/true"] }).init(null);
