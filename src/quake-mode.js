@@ -110,6 +110,10 @@ export const QuakeMode = class {
     this._stageViewFallbackTimeoutId = null;
     this._resizeSignalId = null;
     this._resizeTimeoutId = null;
+    this._geometrySignalId = null;
+    this._geometryLaterId = null;
+    this._sidebarFrame = null;
+    this._restoringGeometry = false;
     this._terminalWindowUnmanagedId = null;
     this._terminalWindowFocusId = null;
     this._wmMapSignalId = null;
@@ -148,6 +152,8 @@ export const QuakeMode = class {
           () => {
             if (prefAdjustment === "primary-monitor-only")
               this.resetMonitor();
+            else if (this._internalState === QuakeMode.LIFECYCLE.RUNNING)
+              this._showTerminalAfterResize();
             else
               this._fitTerminalToMainMonitor();
           }
@@ -371,6 +377,13 @@ export const QuakeMode = class {
     }
 
     this._cancelWaitForResize();
+
+    if (this._geometrySignalId && this.terminalWindow) {
+      this.terminalWindow.disconnect(this._geometrySignalId);
+      this._geometrySignalId = null;
+    }
+    this._sidebarFrame = null;
+    this._cancelGeometryCorrection();
 
     if (this._settingsWatchingListIds.length && this._settings) {
       this._settingsWatchingListIds.forEach((id) => {
@@ -852,6 +865,13 @@ export const QuakeMode = class {
         const frame = this.terminalWindow.get_frame_rect();
         this.terminalWindow.move_frame(false, area.x + area.width - frame.width, area.y);
       }
+      this._sidebarFrame = this.terminalWindow.get_frame_rect();
+      this._restoringGeometry = false;
+      if (!this._geometrySignalId) {
+        this._geometrySignalId = this.terminalWindow.connect("size-changed",
+          () => this._preserveSidebarGeometry());
+      }
+      if (!this._desiredVisible) this._animationState = null;
       this._showTerminalWithAnimation();
     };
     this._resizeSignalId = this.terminalWindow.connect("size-changed", show);
@@ -867,6 +887,53 @@ export const QuakeMode = class {
           return GLib.SOURCE_REMOVE;
         });
     }
+  }
+
+  /**
+   * Keep terminal tab changes from replacing the sidebar's acknowledged size.
+   * Only one correction may be outstanding: a client with new minimum-size
+   * constraints must not cause an endless configure/acknowledge loop.
+   */
+  _preserveSidebarGeometry() {
+    if (this._internalState !== QuakeMode.LIFECYCLE.RUNNING || !this._sidebarFrame)
+      return;
+    const frame = this.terminalWindow.get_frame_rect();
+    const target = this._sidebarFrame;
+    if (frame.width === target.width && frame.height === target.height) {
+      this._restoringGeometry = false;
+      return;
+    }
+    if (this._restoringGeometry || this._geometryLaterId) return;
+    // Leave Mutter's Wayland commit stack before requesting a new configure.
+    this._geometryLaterId = global.compositor.get_laters().add(Meta.LaterType.BEFORE_REDRAW, () => {
+      this._geometryLaterId = null;
+      if (this._internalState !== QuakeMode.LIFECYCLE.RUNNING || !this._sidebarFrame)
+        return GLib.SOURCE_REMOVE;
+      const current = this.terminalWindow.get_frame_rect();
+      const desired = this._sidebarFrame;
+      if (current.width !== desired.width || current.height !== desired.height) {
+        this._restoringGeometry = true;
+        // Mutter deduplicates identical configurations even after the client
+        // independently resized. Mark the user's sidebar size explicitly,
+        // then settle the same rectangle as an extension operation. The
+        // different user_op flags ensure a fresh configure without requesting
+        // any intermediate size or position.
+        this.terminalWindow.move_resize_frame(true, desired.x, desired.y,
+          desired.width, desired.height);
+        this.terminalWindow.move_resize_frame(false, desired.x, desired.y,
+          desired.width, desired.height);
+      }
+      return GLib.SOURCE_REMOVE;
+    });
+  }
+
+  /** Cancel a correction when closing or explicitly changing sidebar geometry. */
+  _cancelGeometryCorrection() {
+    if (this._geometryLaterId) {
+      global.compositor.get_laters().remove(this._geometryLaterId);
+      this._geometryLaterId = null;
+    }
+    this._restoringGeometry = false;
   }
 
   /**
@@ -889,6 +956,8 @@ export const QuakeMode = class {
    * asynchronously on Wayland.
    */
   _fitTerminalToMainMonitor() {
+    this._sidebarFrame = null;
+    this._cancelGeometryCorrection();
     if (!this.terminalWindow) {
       return false;
     }

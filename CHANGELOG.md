@@ -1,3 +1,9 @@
+# 1.4.0-sidebar.4 (2026-10-25)
+
+- Preserve the sidebar's acknowledged size when Ptyxis recalculates its character grid after closing a tab. Correct client resizes without restarting the reveal animation or resizing ordinary terminal windows.
+- Send fresh Wayland configurations when Mutter would otherwise deduplicate an earlier identical size request. Bound outstanding corrections and release geometry handlers on close and disable.
+- Refresh the preserved rectangle after explicit size settings and monitor changes. Add real three-to-two-to-one tab-close coverage and geometry cleanup checks in the isolated GNOME suite.
+
 # 1.4.0-sidebar.3 (2026-10-24)
 
 - Fix GNOME Shell crashing after closing the sidebar terminal and summoning it again. Keep JS visibility filtering separate from native window-tracker notifications and restore hooks silently during window removal.

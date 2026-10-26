@@ -35,6 +35,17 @@ async function waitFor(predicate, description) {
   throw new Error(`Timeout: ${description}`);
 }
 
+/**
+ * @param {Clutter.VirtualInputDevice} keyboard - Isolated compositor keyboard.
+ * @param {number[]} keys - Key values pressed together.
+ */
+function shortcut(keyboard, keys) {
+  for (const key of keys)
+    keyboard.notify_keyval(GLib.get_monotonic_time(), key, Clutter.KeyState.PRESSED);
+  for (const key of [...keys].reverse())
+    keyboard.notify_keyval(GLib.get_monotonic_time(), key, Clutter.KeyState.RELEASED);
+}
+
 /** Run the integration checks on real GNOME window actors. */
 export async function run() {
   const uuid = "quake-terminal-sidebar@ssfxx0923.github.io";
@@ -108,6 +119,49 @@ export async function run() {
     "real Ptyxis window is anchored to the right");
   check(mode.actor.translation_x === 0 && mode.actor.translation_y === 0,
     "show animation finishes without translation residue");
+  settings.set_boolean("hover-enabled", false);
+  settings.set_boolean("auto-hide-window", false);
+  const tabFrame = sidebar.get_frame_rect();
+  const tabSizes = [];
+  const tabSizeId = sidebar.connect("size-changed", () => {
+    const rect = sidebar.get_frame_rect();
+    tabSizes.push([rect.width, rect.height]);
+  });
+  new Gio.Subprocess({ argv: ["ptyxis", "--tab", "--title=sidebar-tab-two", "--", "/usr/bin/sleep", "120"] }).init(null);
+  await waitFor(() => sidebar.title.includes("sidebar-tab-two"), "second sidebar tab selected");
+  new Gio.Subprocess({ argv: ["ptyxis", "--tab", "--title=sidebar-tab-three", "--", "/usr/bin/sleep", "120"] }).init(null);
+  await waitFor(() => sidebar.title.includes("sidebar-tab-three"), "third sidebar tab selected");
+  const keyboard = global.stage.context.get_backend().get_default_seat()
+    .create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
+  Main.activateWindow(sidebar);
+  await Scripting.sleep(100);
+  shortcut(keyboard, [Clutter.KEY_Control_L, Clutter.KEY_Shift_L, Clutter.KEY_w]);
+  await waitFor(() => sidebar.title.includes("sidebar-tab-two"), "closing the third tab selects the second");
+  await Scripting.sleep(500);
+  check(sidebar.get_frame_rect().width === tabFrame.width && sidebar.get_frame_rect().height === tabFrame.height,
+    "closing one of three tabs retains the sidebar size");
+  tabSizes.length = 0;
+  shortcut(keyboard, [Clutter.KEY_Control_L, Clutter.KEY_Shift_L, Clutter.KEY_w]);
+  await waitFor(() => !sidebar.title.includes("sidebar-tab-two"), "closing the second tab selects the original session");
+  await Scripting.sleep(700);
+  sidebar.disconnect(tabSizeId);
+  console.log(`SIDEBAR TAB GEOMETRY: ${JSON.stringify({ before: [tabFrame.width, tabFrame.height], sizes: tabSizes })}`);
+  const afterTabClose = sidebar.get_frame_rect();
+  check(afterTabClose.width === tabFrame.width && afterTabClose.height === tabFrame.height &&
+    afterTabClose.x === tabFrame.x && afterTabClose.y === tabFrame.y,
+    "closing a sidebar tab preserves the configured outer size and position");
+  check(tabSizes.length <= 2 && mode._animationState === null && !mode._restoringGeometry,
+    "tab geometry correction settles without resize loops or another reveal animation");
+  settings.set_int("horizontal-size", 30);
+  await waitFor(() => sidebar.get_frame_rect().width === Math.round(area.width * 0.3) &&
+    mode._animationState === null, "new sidebar width acknowledged");
+  check(mode._sidebarFrame.width === sidebar.get_frame_rect().width,
+    "changing sidebar settings replaces the preserved geometry");
+  settings.set_int("horizontal-size", 40);
+  await waitFor(() => sidebar.get_frame_rect().width === tabFrame.width && mode._animationState === null,
+    "original sidebar width restored");
+  settings.set_boolean("hover-enabled", true);
+  settings.set_boolean("auto-hide-window", true);
   const artifactDir = GLib.getenv("SIDEBAR_ARTIFACT_DIR");
   if (artifactDir) {
     const stream = Gio.File.new_for_path(`${artifactDir}/right-sidebar.png`)
@@ -133,6 +187,7 @@ export async function run() {
   await Scripting.waitTestWindows();
   await waitFor(() => mode.terminalWindow.is_hidden(), "focus loss hides the sidebar");
   check(true, "focusing another application hides the sidebar");
+  await Scripting.destroyTestWindows();
   move(monitor.x + monitor.width - 1, monitor.y + monitor.height * 0.75);
   await waitFor(() => !mode.terminalWindow.is_hidden() && mode._animationState === null,
     "hover reopens the same window");
@@ -240,6 +295,8 @@ export async function run() {
     mode.destroy(true);
     check(!mode._visibility && !mode._terminalWindow && mode._settingsWatchingListIds.length === 0,
       `close cleanup is complete and idempotent (${phase})`);
+    check(!mode._geometrySignalId && !mode._geometryLaterId && !mode._sidebarFrame,
+      `closing releases the geometry constraint (${phase})`);
     move(monitor.x + monitor.width - 1, monitor.y + monitor.height * 0.75);
     await waitFor(() => extension._quakeMode !== closingMode && extension._quakeMode?._internalState === "RUNNING",
       "hover creates a new terminal after closing the old one");
@@ -277,6 +334,8 @@ export async function run() {
   Main.extensionManager.disableExtension(uuid);
   await waitFor(() => extension._settings === null, "extension disabled cleanly");
   check(!mode._clearAnimationClip, "disabling cleans up animation hooks");
+  check(!mode._geometrySignalId && !mode._geometryLaterId && !mode._sidebarFrame,
+    "disabling releases the geometry constraint on the surviving terminal");
   check(app.get_windows().includes(sidebar),
     "disabling restores ordinary terminal window discovery");
   console.log("SIDEBAR SMOKE COMPLETE");
