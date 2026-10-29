@@ -1,6 +1,6 @@
 {
   "uuid": "quake-terminal-sidebar@ssfxx0923.github.io",
-  "version": 47,
+  "version": 48,
   "name": "Quake Terminal Sidebar",
   "description": "Reveal your existing terminal from the screen edge with the pointer or a shortcut.",
   "shell-version": [
@@ -14,5 +14,5 @@
   ],
   "settings-schema": "org.gnome.shell.extensions.quake-terminal-sidebar",
   "url": "https://github.com/ssfxx0923/quake-terminal",
-  "version-name": "1.4.0-sidebar.5"
+  "version-name": "1.4.0-sidebar.6"
 }

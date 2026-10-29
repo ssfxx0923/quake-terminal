@@ -11,6 +11,11 @@
 			<summary>Toggle Terminal</summary>
 			<description>Shortcut to activate the terminal application</description>
 		</key>
+    <key name="hover-toggle-shortcut" type="as">
+      <default><![CDATA[['<Super><Shift>Return']]]></default>
+      <summary>Toggle edge hover</summary>
+      <description>Enable or disable mouse edge activation without changing the current sidebar window</description>
+    </key>
 		<key name="vertical-size" type="i">
   		<default>100</default>
   		<summary>Terminal Vertical Size</summary>
@@ -60,8 +65,9 @@
 		<key name="auto-hide-window" type="b">
 			<default>true</default>
 			<summary>Auto Hide Terminal</summary>
-  		<description>When enabled, this hides the Terminal window when it loses focus</description>
+      <description>Hide mouse-revealed terminals when they lose focus. Keyboard-revealed terminals remain visible.</description>
 		</key>
+    <!-- Retained for settings compatibility; toggling now always hides visible windows. -->
 		<key name="hide-on-toggle-without-focus" type="b">
 			<default>false</default>
 			<summary>Hide on Toggle without Focus</summary>

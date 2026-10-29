@@ -122,6 +122,7 @@ export const QuakeMode = class {
     this._clearAnimationClip = null;
     this._requestedMonitorIndex = null;
     this._desiredVisible = false;
+    this._keepVisibleOnFocusLoss = false;
     this._animationState = null;
     this._visibility = null;
 
@@ -431,13 +432,11 @@ export const QuakeMode = class {
    * @returns {Promise<void>} A promise that resolves when the toggle operation is complete.
    */
   async toggle() {
-    if (this.terminalWindow && this._desiredVisible &&
-        (this.terminalWindow.has_focus() ||
-         this._settings.get_boolean("hide-on-toggle-without-focus"))) {
+    if (this.terminalWindow && this._desiredVisible) {
       this._hideTerminalWithAnimation();
       return;
     }
-    await this.show();
+    await this.show(null, true);
   }
 
   /** Forget a monitor that may have disappeared after a display change. */
@@ -451,9 +450,10 @@ export const QuakeMode = class {
    * Show the sidebar without toggling, including while a hide is in progress.
    *
    * @param {number|null} monitorIndex - Monitor selected by the hovered edge.
+   * @param {boolean} keyboardReveal - Keep this reveal visible after focus loss.
    * @returns {Promise<void>} Completion of terminal startup.
    */
-  async show(monitorIndex = null) {
+  async show(monitorIndex = null, keyboardReveal = false) {
     if (Main.overview.visible) {
       this.hideImmediately();
       return;
@@ -467,6 +467,12 @@ export const QuakeMode = class {
     this._requestedMonitorIndex = monitorIndex;
     const alreadyVisible = this._desiredVisible && this.terminalWindow &&
       !this.terminalWindow.is_hidden() && this._animationState !== "hiding";
+    // A pointer visit must not unpin or refocus a keyboard-revealed sidebar
+    // while the user is working in the application being compared.
+    if (alreadyVisible && this._keepVisibleOnFocusLoss && !keyboardReveal)
+      return;
+    if (keyboardReveal || !alreadyVisible)
+      this._keepVisibleOnFocusLoss = keyboardReveal;
     this._desiredVisible = true;
     if (!this.terminalWindow) {
       try {
@@ -1107,7 +1113,7 @@ export const QuakeMode = class {
   async _handleHideOnFocusLoss(source) {
     const shouldAutoHide = this._settings.get_boolean("auto-hide-window");
 
-    if (!shouldAutoHide) {
+    if (!shouldAutoHide || this._keepVisibleOnFocusLoss) {
       return;
     }
 
@@ -1120,7 +1126,7 @@ export const QuakeMode = class {
       return;
     }
 
-    if (source.focus_window !== focus || !this._desiredVisible) {
+    if (source.focus_window !== focus || !this._desiredVisible || this._keepVisibleOnFocusLoss) {
       return;
     }
 

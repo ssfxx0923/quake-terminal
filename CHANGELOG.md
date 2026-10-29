@@ -1,3 +1,10 @@
+# 1.4.0-sidebar.6 (2026-10-29)
+
+- Add configurable Super+Shift+Enter to toggle persistent edge hover, with a state notification. Cancel pending dwell and require a fresh edge visit after reenabling, without changing the current window or disabling the terminal shortcut.
+- Keep keyboard-revealed terminals visible after focus loss for comparison work. Pointer visits leave these windows and comparison focus alone; a later fresh mouse reveal restores the configured auto-hide behavior.
+- Make Super+Enter directly hide any expanded sidebar regardless of reveal source or focus. Remove the superseded focus-dependent toggle preference from the UI while retaining its schema key for settings compatibility.
+- Cover both real shortcuts, dual-monitor hover suspension, keyboard startup, comparison focus retention, shortcut closing and switching back to mouse auto-hide in the isolated GNOME suite.
+
 # 1.4.0-sidebar.5 (2026-10-26)
 
 - Keep new windows transparent while converting inherited maximized geometry to the sidebar size. Finish existing map effects before resetting opacity, and suppress native map/unmaximize animations during preparation so full-screen snapshots cannot appear ahead of the sidebar reveal.

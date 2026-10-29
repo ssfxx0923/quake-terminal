@@ -54,7 +54,11 @@ export default class QuakeTerminalExtension extends Extension {
     );
     this._edgeSettingIds = ["slide-edge", "hover-enabled", "hover-delay", "hover-width",
       "primary-monitor-only", "hover-lower-half-only"]
-      .map(key => this._settings.connect(`changed::${key}`, () => this._edgeDwell.reset()));
+      .map(key => this._settings.connect(`changed::${key}`, () => {
+        this._edgeDwell.reset();
+        if (key === "hover-enabled")
+          this._edgeBlockedUntilLeave = true;
+      }));
     this._monitorsChangedId = Main.layoutManager.connect("monitors-changed", () => {
       this._edgeDwell.reset();
       this._edgeBlockedUntilLeave = true;
@@ -81,10 +85,18 @@ export default class QuakeTerminalExtension extends Extension {
       () =>
         this._handleQuakeModeTerminal().catch((reason) => console.log(reason))
     );
+    Main.wm.addKeybinding(
+      "hover-toggle-shortcut",
+      this._settings,
+      Meta.KeyBindingFlags.IGNORE_AUTOREPEAT,
+      Shell.ActionMode.NORMAL,
+      () => this._toggleEdgeHover()
+    );
   }
 
   disable() {
     Main.wm.removeKeybinding("terminal-shortcut");
+    Main.wm.removeKeybinding("hover-toggle-shortcut");
     this._pointerWatch?.remove();
     this._pointerWatch = null;
     this._edgeDwell?.reset();
@@ -146,6 +158,14 @@ export default class QuakeTerminalExtension extends Extension {
   /** Update the pending edge trigger after pointer movement. */
   _updateEdge() {
     this._edgeDwell.update(this._edgeMonitor(), this._settings.get_int("hover-delay"));
+  }
+
+  /** Toggle persistent pointer activation without changing the current window. */
+  _toggleEdgeHover() {
+    const enabled = !this._settings.get_boolean("hover-enabled");
+    this._settings.set_boolean("hover-enabled", enabled);
+    Main.notify(_("Quake Terminal Sidebar"),
+      enabled ? _("Edge hover enabled") : _("Edge hover disabled"));
   }
 
   /**

@@ -348,93 +348,99 @@ export default class QuakeTerminalPreferences extends ExtensionPreferences {
 
     page.add(generalSettingsGroup);
 
-    // Shortcut
-    const shortcutId = "terminal-shortcut";
-    const shortcutRow = new Adw.ActionRow({
-      title: _("Toggle Shortcut"),
-      subtitle: _("Shortcut to activate the terminal application"),
-    });
-
-    const shortcutLabel = new Gtk.ShortcutLabel({
-      disabled_text: _("Select a shortcut"),
-      accelerator: settings.get_strv(shortcutId)[0] ?? "<Control>backslash",
-      valign: Gtk.Align.CENTER,
-      halign: Gtk.Align.CENTER,
-    });
-
-    settings.connect(`changed::${shortcutId}`, () => {
-      shortcutLabel.set_accelerator(settings.get_strv(shortcutId)[0]);
-    });
-
-    shortcutRow.connect("activated", () => {
-      const ctl = new Gtk.EventControllerKey();
-
-      const statusPage = new Adw.StatusPage({
-        description: _("Enter new shortcut to toggle Quake Terminal"),
-        icon_name: "preferences-desktop-keyboard-shortcuts-symbolic",
+    // Both shortcuts share the same accelerator editor.
+    for (const [shortcutId, title, description] of [
+      ["terminal-shortcut", _("Toggle Shortcut"),
+        _("Show or hide the terminal; keyboard reveals stay visible after focus loss")],
+      ["hover-toggle-shortcut", _("Toggle Edge Hover Shortcut"),
+        _("Enable or disable mouse edge activation")],
+    ]) {
+      const shortcutRow = new Adw.ActionRow({
+        title,
+        subtitle: description,
       });
 
-      const toolbarView = new Adw.ToolbarView({
-        content: statusPage,
+      const shortcutLabel = new Gtk.ShortcutLabel({
+        disabled_text: _("Select a shortcut"),
+        accelerator: settings.get_strv(shortcutId)[0] ?? "",
+        valign: Gtk.Align.CENTER,
+        halign: Gtk.Align.CENTER,
       });
 
-      const headerBar = new Adw.HeaderBar({
-        title_widget: new Adw.WindowTitle({
-          title: _("Set Shortcut"),
-        }),
+      settings.connect(`changed::${shortcutId}`, () => {
+        shortcutLabel.set_accelerator(settings.get_strv(shortcutId)[0]);
       });
 
-      toolbarView.add_top_bar(headerBar);
+      shortcutRow.connect("activated", () => {
+        const ctl = new Gtk.EventControllerKey();
 
-      const editor = new Adw.Window({
-        modal: true,
-        // @ts-ignore
-        transient_for: page.get_root(),
-        hide_on_close: true,
-        width_request: 400,
-        height_request: 300,
-        resizable: false,
-        content: toolbarView,
-      });
+        const statusPage = new Adw.StatusPage({
+          description,
+          icon_name: "preferences-desktop-keyboard-shortcuts-symbolic",
+        });
 
-      editor.add_controller(ctl);
+        const toolbarView = new Adw.ToolbarView({
+          content: statusPage,
+        });
 
-      ctl.connect("key-pressed", (__, keyval, keycode, state) => {
-        let mask = state & Gtk.accelerator_get_default_mod_mask();
-        mask &= ~Gdk.ModifierType.LOCK_MASK;
+        const headerBar = new Adw.HeaderBar({
+          title_widget: new Adw.WindowTitle({
+            title: _("Set Shortcut"),
+          }),
+        });
 
-        if (
-          !mask &&
-          (keyval === Gdk.KEY_Escape || keyval === Gdk.KEY_BackSpace)
-        ) {
-          editor.close();
+        toolbarView.add_top_bar(headerBar);
+
+        const editor = new Adw.Window({
+          modal: true,
+          // @ts-ignore
+          transient_for: page.get_root(),
+          hide_on_close: true,
+          width_request: 400,
+          height_request: 300,
+          resizable: false,
+          content: toolbarView,
+        });
+
+        editor.add_controller(ctl);
+
+        ctl.connect("key-pressed", (__, keyval, keycode, state) => {
+          let mask = state & Gtk.accelerator_get_default_mod_mask();
+          mask &= ~Gdk.ModifierType.LOCK_MASK;
+
+          if (
+            !mask &&
+            (keyval === Gdk.KEY_Escape || keyval === Gdk.KEY_BackSpace)
+          ) {
+            editor.close();
+            return Gdk.EVENT_STOP;
+          }
+
+          if (!isValidAccel(mask, keyval)) {
+            return Gdk.EVENT_STOP;
+          }
+
+          settings.set_strv(shortcutId, [
+            Gtk.accelerator_name_with_keycode(null, keyval, keycode, mask),
+          ]);
+
+          editor.destroy();
           return Gdk.EVENT_STOP;
-        }
+        });
 
-        if (!isValidAccel(mask, keyval)) {
-          return Gdk.EVENT_STOP;
-        }
-
-        settings.set_strv(shortcutId, [
-          Gtk.accelerator_name_with_keycode(null, keyval, keycode, mask),
-        ]);
-
-        editor.destroy();
-        return Gdk.EVENT_STOP;
+        editor.present();
       });
 
-      editor.present();
-    });
-
-    shortcutRow.add_suffix(shortcutLabel);
-    shortcutRow.activatable_widget = shortcutLabel;
-    generalSettingsGroup.add(shortcutRow);
+      shortcutRow.add_suffix(shortcutLabel);
+      shortcutRow.activatable_widget = shortcutLabel;
+      generalSettingsGroup.add(shortcutRow);
+    }
 
     // Auto Hide Window
     const autoHideWindowRow = new Adw.SwitchRow({
       title: _("Auto Hide Terminal"),
       subtitle: _(
-        "When enabled, this hides the Terminal window when it loses focus"
+        "Hide mouse-revealed terminals on focus loss; keyboard reveals stay visible"
       ),
     });
     generalSettingsGroup.add(autoHideWindowRow);
@@ -442,22 +448,6 @@ export default class QuakeTerminalPreferences extends ExtensionPreferences {
     settings.bind(
       "auto-hide-window",
       autoHideWindowRow,
-      "active",
-      Gio.SettingsBindFlags.DEFAULT
-    );
-
-    // Hide on Toggle without Focus
-    const hideOnToggleWithoutFocusRow = new Adw.SwitchRow({
-      title: _("Hide on Toggle without Focus"),
-      subtitle: _(
-        "When enabled, if the window is not hidden, and out of focus, instead of coming back into focus, hide"
-      ),
-    });
-    generalSettingsGroup.add(hideOnToggleWithoutFocusRow);
-
-    settings.bind(
-      "hide-on-toggle-without-focus",
-      hideOnToggleWithoutFocusRow,
       "active",
       Gio.SettingsBindFlags.DEFAULT
     );
@@ -648,7 +638,7 @@ export default class QuakeTerminalPreferences extends ExtensionPreferences {
 
     const hoverRow = new Adw.SwitchRow({
       title: _("Reveal on Edge Hover"),
-      subtitle: _("Rest the pointer at the screen edge to show the sidebar"),
+      subtitle: _("Rest the pointer at the screen edge to show the sidebar; also toggled by the edge hover shortcut"),
     });
     settings.bind("hover-enabled", hoverRow, "active", Gio.SettingsBindFlags.DEFAULT);
     positionSettingsGroup.add(hoverRow);

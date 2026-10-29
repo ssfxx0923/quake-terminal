@@ -84,6 +84,10 @@ export async function run() {
   }));
   const pointer = global.stage.context.get_backend().get_default_seat()
     .create_virtual_device(Clutter.InputDeviceType.POINTER_DEVICE);
+  const keyboard = global.stage.context.get_backend().get_default_seat()
+    .create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
+  const toggleHover = () => shortcut(keyboard, [Clutter.KEY_Super_L, Clutter.KEY_Shift_L, Clutter.KEY_Return]);
+  const toggleTerminal = () => shortcut(keyboard, [Clutter.KEY_Super_L, Clutter.KEY_Return]);
   const move = (x, y) => pointer.notify_absolute_motion(GLib.get_monotonic_time(), x, y);
   move(300, 300);
   await Scripting.sleep(100);
@@ -98,6 +102,20 @@ export async function run() {
   await Scripting.sleep(250);
   check(!extension._quakeMode, "secondary top-right status area also cannot trigger the sidebar");
 
+  toggleHover();
+  await waitFor(() => !settings.get_boolean("hover-enabled"), "Super+Shift+Enter disables edge hover");
+  move(monitor.x + monitor.width - 1, monitor.y + monitor.height * 0.75);
+  await Scripting.sleep(250);
+  check(!extension._quakeMode, "disabled edge hover ignores the primary lower edge");
+  move(secondary.x + secondary.width - 1, secondary.y + secondary.height * 0.75);
+  await Scripting.sleep(250);
+  check(!extension._quakeMode, "disabled edge hover ignores the secondary lower edge");
+  toggleHover();
+  await waitFor(() => settings.get_boolean("hover-enabled"), "Super+Shift+Enter enables edge hover again");
+  await Scripting.sleep(200);
+  check(!extension._quakeMode, "enabling hover at an occupied edge waits for a fresh visit");
+  move(300, 300);
+  await Scripting.sleep(100);
   move(monitor.x + monitor.width - 1, monitor.y + monitor.height * 0.75);
   await waitFor(() => extension._quakeMode?._internalState === "RUNNING", "hover launches Ptyxis");
   let mode = extension._quakeMode;
@@ -131,8 +149,6 @@ export async function run() {
   await waitFor(() => sidebar.title.includes("sidebar-tab-two"), "second sidebar tab selected");
   new Gio.Subprocess({ argv: ["ptyxis", "--tab", "--title=sidebar-tab-three", "--", "/usr/bin/sleep", "120"] }).init(null);
   await waitFor(() => sidebar.title.includes("sidebar-tab-three"), "third sidebar tab selected");
-  const keyboard = global.stage.context.get_backend().get_default_seat()
-    .create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
   Main.activateWindow(sidebar);
   await Scripting.sleep(100);
   shortcut(keyboard, [Clutter.KEY_Control_L, Clutter.KEY_Shift_L, Clutter.KEY_w]);
@@ -187,7 +203,51 @@ export async function run() {
   await Scripting.waitTestWindows();
   await waitFor(() => mode.terminalWindow.is_hidden(), "focus loss hides the sidebar");
   check(true, "focusing another application hides the sidebar");
+  const comparisonWindow = global.display.focus_window;
+  toggleTerminal();
+  await waitFor(() => !sidebar.is_hidden() && mode._animationState === null && sidebar.has_focus(),
+    "Super+Enter reveals and focuses the terminal");
+  Main.activateWindow(comparisonWindow);
+  await waitFor(() => global.display.focus_window === comparisonWindow, "comparison application focused");
+  await Scripting.sleep(350);
+  check(!sidebar.is_hidden() && mode._desiredVisible && mode._animationState === null,
+    "keyboard-revealed sidebar remains visible after focus loss");
+  move(monitor.x + monitor.width - 1, monitor.y + monitor.height * 0.75);
+  await Scripting.sleep(250);
+  check(!sidebar.is_hidden() && global.display.focus_window === comparisonWindow,
+    "hovering a keyboard-revealed sidebar neither unpins it nor steals comparison focus");
+  toggleHover();
+  await waitFor(() => !settings.get_boolean("hover-enabled"), "edge hover disabled while sidebar is visible");
+  check(!sidebar.is_hidden(), "toggling edge hover does not close the current terminal");
+  toggleTerminal();
+  await waitFor(() => sidebar.is_hidden() && mode._animationState === null,
+    "shortcut directly hides the unfocused keyboard-revealed sidebar");
+  toggleTerminal();
+  await waitFor(() => !sidebar.is_hidden() && sidebar.has_focus() && mode._animationState === null,
+    "terminal shortcut still opens the same session with edge hover disabled");
+  toggleTerminal();
+  await waitFor(() => sidebar.is_hidden() && mode._animationState === null, "keyboard sidebar hidden again");
+  toggleHover();
+  await waitFor(() => settings.get_boolean("hover-enabled"), "edge hover restored for pointer reveals");
+  await Scripting.sleep(200);
+  check(sidebar.is_hidden(), "reenabling edge hover does not immediately reopen the sidebar");
+  move(300, 300);
+  await Scripting.sleep(100);
+  move(monitor.x + monitor.width - 1, monitor.y + monitor.height * 0.75);
+  await waitFor(() => !sidebar.is_hidden() && mode._animationState === null, "fresh mouse reveal after keyboard use");
+  toggleTerminal();
+  await waitFor(() => sidebar.is_hidden() && mode._animationState === null,
+    "shortcut also closes a mouse-revealed sidebar");
+  move(300, 300);
+  await Scripting.sleep(100);
+  move(monitor.x + monitor.width - 1, monitor.y + monitor.height * 0.75);
+  await waitFor(() => !sidebar.is_hidden() && mode._animationState === null, "mouse reveal after shortcut close");
+  Main.activateWindow(comparisonWindow);
+  await waitFor(() => sidebar.is_hidden(), "mouse reveal restores focus-loss hiding after keyboard use");
+  check(!mode._keepVisibleOnFocusLoss, "mouse reveal clears keyboard persistence for the new presentation");
   await Scripting.destroyTestWindows();
+  move(300, 300);
+  await Scripting.sleep(100);
   move(monitor.x + monitor.width - 1, monitor.y + monitor.height * 0.75);
   await waitFor(() => !mode.terminalWindow.is_hidden() && mode._animationState === null,
     "hover reopens the same window");
@@ -269,7 +329,7 @@ export async function run() {
   check(sidebar.is_hidden() && !mode._desiredVisible,
     "returning from the application grid does not flash the sidebar");
   /* eslint-disable no-await-in-loop */
-  for (const phase of ["visible", "showing", "hiding", "minimized", "no-auto-hide", "no-animation", "maximized", "maximized-no-animation"]) {
+  for (const phase of ["keyboard", "visible", "showing", "hiding", "minimized", "no-auto-hide", "no-animation", "maximized", "maximized-no-animation"]) {
     const closingMode = mode;
     const closingSidebar = sidebar;
     const revealMonitor = phase === "maximized-no-animation" ? secondary : monitor;
@@ -319,7 +379,10 @@ export async function run() {
       if (rect.width > Math.round(revealArea.width * 0.4) + 2 || candidate.actor.__animationInfo)
         invalidFrames.push([rect.width, rect.height, candidate._animationState]);
     });
-    move(revealMonitor.x + revealMonitor.width - 1, revealMonitor.y + revealMonitor.height * 0.75);
+    if (phase === "keyboard")
+      toggleTerminal();
+    else
+      move(revealMonitor.x + revealMonitor.width - 1, revealMonitor.y + revealMonitor.height * 0.75);
     await waitFor(() => extension._quakeMode !== closingMode && extension._quakeMode?._internalState === "RUNNING",
       "hover creates a new terminal after closing the old one");
     mode = extension._quakeMode;
@@ -328,6 +391,8 @@ export async function run() {
     await waitFor(() => replacementMode._animationState === null && !replacementMode.terminalWindow.minimized,
       "replacement sidebar revealed");
     await Scripting.sleep(50);
+    check(mode._keepVisibleOnFocusLoss === (phase === "keyboard"),
+      `new terminal remembers its reveal source (${phase})`);
     global.stage.disconnect(paintId);
     check(revealedFrames > 0 && invalidFrames.length === 0,
       `reopened sidebar never paints a full-width window or native resize clone (${phase}): ${JSON.stringify(invalidFrames)}`);
